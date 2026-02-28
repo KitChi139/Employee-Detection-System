@@ -1,0 +1,215 @@
+import axios from "axios";
+
+// ====================================
+// CONFIGURATION
+// ====================================
+
+const API_BASE_URL =
+  process.env.REACT_APP_API_URL ||
+  "http://localhost/facial_attendance_api/controllers";
+
+export const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    "Content-Type": "application/json",
+  },
+  timeout: 10000,
+});
+
+// ====================================
+// GLOBAL ERROR HANDLER
+// ====================================
+
+const handleError = (error) => {
+  console.error("API Error:", error);
+
+  if (error.response) {
+    throw error.response.data;
+  } else if (error.request) {
+    throw { message: "Server not responding" };
+  } else {
+    throw { message: "Unexpected error occurred" };
+  }
+};
+
+// ====================================
+// EMPLOYEE ENDPOINTS
+// ====================================
+
+export const getEmployees = async () => {
+  try {
+    const { data } = await api.get("/employee.php");
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const addEmployee = async (employeeData) => {
+  try {
+    const { data } = await api.post("/employee.php", employeeData);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const deleteEmployee = async (id) => {
+  try {
+    const { data } = await api.delete(`/employee.php?id=${id}`);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+// ====================================
+// ATTENDANCE ENDPOINTS
+// ====================================
+
+export const getAttendance = async (filters = {}) => {
+  try {
+    const { data } = await api.get("/attendance.php", {
+      params: filters,
+    });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const markAttendance = async ({
+  employee_id,
+  event_id,
+  attendance_type, // "Check In" or "Check Out"
+}) => {
+  try {
+    const { data } = await api.post("/attendance.php", {
+      employee_id,
+      event_id,
+      attendance_type,
+    });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+// ====================================
+// EVENT ENDPOINTS
+// ====================================
+
+export const getEvents = async () => {
+  try {
+    const { data } = await api.get("/events.php");
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const createEvent = async (eventData) => {
+  try {
+    const { data } = await api.post("/events.php", eventData);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const deleteEvent = async (id) => {
+  try {
+    const { data } = await api.delete(`/events.php?id=${id}`);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const getEventTypes = async () => {
+  try {
+    const { data } = await api.get("/eventtype.php");
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const getLocations = async () => {
+  try {
+    const { data } = await api.get("/location.php");
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+// ====================================
+// FACIAL RECOGNITION ENDPOINTS
+// ====================================
+
+export const getFacialEncodings = async () => {
+  try {
+    const { data } = await api.get("/facial.php");
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const registerFace = async ({
+  employee_id,
+  encoding,
+}) => {
+  try {
+    const { data } = await api.post("/facial.php", {
+      employee_id,
+      encoding,
+    });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+// ====================================
+// DASHBOARD ENDPOINTS
+// ====================================
+
+export const getDashboardStats = async () => {
+  try {
+    const { data } = await api.get("/dashboard_stats.php");
+    return data?.data ?? data ?? {};
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const getDepartmentAttendance = async () => {
+  try {
+    const { data } = await api.get("/dashboard_department.php");
+    return Array.isArray(data) ? data : (data?.data ?? []);
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const getEntryExitLogs = async () => {
+  try {
+    const { data } = await api.get("/entry_exit.php");
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const getEventAttendance = async (event_id) => {
+  try {
+    const { data } = await api.get(
+      `/event_attendance.php?event_id=${event_id}`
+    );
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
