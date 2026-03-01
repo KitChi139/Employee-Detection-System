@@ -3,6 +3,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import { Container, Row, Col, Card, Button, Badge, Modal, Form } from 'react-bootstrap';
 import './LandingPage.css';
 import { getEvents, getEmployees, markAttendance } from '../api';
+import LoginPage from './Adminlogin';
 
 
 
@@ -94,6 +95,7 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
 
   const [clockTapCount, setClockTapCount] = useState(0);
   const clockTapTimer                     = useRef(null);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
 
   const handleClockTap = () => {
     const next = clockTapCount + 1;
@@ -101,7 +103,7 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
     clearTimeout(clockTapTimer.current);
     if (next >= 5) {
       setClockTapCount(0);
-      if (onNavigateAdmin) onNavigateAdmin();
+      setShowAdminLogin(true);
     } else {
       clockTapTimer.current = setTimeout(() => setClockTapCount(0), 2000);
     }
@@ -655,6 +657,17 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
         rel="stylesheet" 
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"
       />
+
+      {/* Admin Login Overlay — shown after 5 taps on the clock */}
+      {showAdminLogin && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          animation: 'fadeIn 0.2s ease'
+        }}>
+          <style>{`@keyframes fadeIn { from { opacity:0 } to { opacity:1 } }`}</style>
+          <LoginPage onBackToScanner={() => setShowAdminLogin(false)} />
+        </div>
+      )}
     </div>
   );
 }
