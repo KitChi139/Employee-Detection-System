@@ -5,6 +5,7 @@ import EventsPage from './Eventspage';
 import EventDetailsPage from './Eventdetailspage';
 import EntryExitPage from './Entryexitpage';
 import Eventsarchives from './Eventsarchives';
+import EmployeesArchive from './Employeesarchives';
 import { getDashboardStats, getDepartmentAttendance } from '../api';
 import './ccs/dashboard.css';
 
@@ -14,6 +15,7 @@ function AdminDashboard({ onLogout }) {
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [currentPage, setCurrentPage] = useState({ page: 'dashboard', data: null });
   const [eventsDropdownOpen, setEventsDropdownOpen] = useState(false);
+  const [archivesDropdownOpen, setArchivesDropdownOpen] = useState(false);
 
   const [stats, setStats] = useState({
     totalPresent: 0,
@@ -52,9 +54,18 @@ function AdminDashboard({ onLogout }) {
     date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
 
   const navigateToPage = (pageName, data = null) => {
-    // Keep 'events' menu active for both events sub-pages and archive
-    const eventsPages = ['events', 'eventDetails', 'archive'];
-    setActiveMenu(eventsPages.includes(pageName) ? 'events' : pageName);
+    // close dropdowns when user picks a page
+    setEventsDropdownOpen(false);
+    setArchivesDropdownOpen(false);
+
+    // Keep 'events' menu active for both events sub-pages
+    const eventsPages = ['events', 'eventDetails'];
+    // keep 'archive' menu active for any archive sub-page
+    const archivePages = ['archiveEmployees', 'archiveEvents'];
+    let menu = pageName;
+    if (eventsPages.includes(pageName)) menu = 'events';
+    else if (archivePages.includes(pageName)) menu = 'archive';
+    setActiveMenu(menu);
     setCurrentPage({ page: pageName, data });
   };
 
@@ -303,15 +314,41 @@ function AdminDashboard({ onLogout }) {
                   <span>Event Attendance</span>
                 </div>
 
-                {/* Events Archive */}
+    
+              </div>
+            )}
+          </div>
+
+          {/* Archives — dropdown */}
+          <div
+            className={`nav-item nav-item-dropdown ${activeMenu==='archive' ? 'active' : ''}`}
+            onClick={() => navigateToPage('archiveEvents')}
+            onMouseEnter={() => setArchivesDropdownOpen(true)}
+            onMouseLeave={() => setArchivesDropdownOpen(false)}
+          >
+            <i className="bi bi-archive-fill"></i>
+            <span>Archives</span>
+            <i className={`bi bi-chevron-${archivesDropdownOpen ? 'up' : 'down'} ms-auto`}></i>
+
+            {archivesDropdownOpen && (
+              <div className="dropdown-menu-custom">
+                {/* Employees Archive */}
                 <div
-                  className={`dropdown-item-custom ${currentPage.page==='archive' ? 'active' : ''}`}
-                  onClick={e => { e.stopPropagation(); navigateToPage('archive'); }}
+                  className={`dropdown-item-custom ${currentPage.page==='archiveEmployees' ? 'active' : ''}`}
+                  onClick={e => { e.stopPropagation(); navigateToPage('archiveEmployees'); }}
                 >
-                  <i className="bi bi-archive-fill me-2"></i>
-                  <span>Events Archive</span>
+                  <i className="bi bi-person-lines-fill me-2"></i>
+                  <span>Employees</span>
                 </div>
 
+                {/* Events Archive */}
+                <div
+                  className={`dropdown-item-custom ${currentPage.page==='archiveEvents' ? 'active' : ''}`}
+                  onClick={e => { e.stopPropagation(); navigateToPage('archiveEvents'); }}
+                >
+                  <i className="bi bi-calendar-event-fill me-2"></i>
+                  <span>Events</span>
+                </div>
               </div>
             )}
           </div>
@@ -344,7 +381,8 @@ function AdminDashboard({ onLogout }) {
           {currentPage.page==='events'       && <EventsPage onNavigate={(page, data) => navigateToPage(page, data)} />}
           {currentPage.page==='eventDetails' && <EventDetailsPage eventData={currentPage.data} onNavigate={page => navigateToPage(page)} />}
           {currentPage.page==='entryExit'    && <EntryExitPage />}
-          {currentPage.page==='archive'      && <Eventsarchives onNavigate={(page, data) => navigateToPage(page, data)} />}
+          {currentPage.page==='archiveEvents' && <Eventsarchives onNavigate={(page, data) => navigateToPage(page, data)} />}
+          {currentPage.page==='archiveEmployees' && <EmployeesArchive onNavigate={(page, data) => navigateToPage(page, data)} />}
         </div>
       </div>
     </div>
