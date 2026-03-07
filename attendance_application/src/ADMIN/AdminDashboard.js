@@ -5,6 +5,8 @@ import EventsPage from './Eventspage';
 import EventDetailsPage from './Eventdetailspage';
 import EntryExitPage from './Entryexitpage';
 import Settingspage from './Settingspage';
+import Eventsarchives from './Eventsarchives';
+import EmployeesArchive from './Employeesarchives';
 import { getDashboardStats, getDepartmentAttendance } from '../api';
 import './ccs/dashboard.css';
 import LiveClock from "../components/LiveClock";
@@ -16,6 +18,7 @@ function AdminDashboard({ onLogout }) {
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [currentPage, setCurrentPage] = useState({ page: 'dashboard', data: null });
   const [eventsDropdownOpen, setEventsDropdownOpen] = useState(false);
+  const [archivesDropdownOpen, setArchivesDropdownOpen] = useState(false);
 
   const [stats, setStats] = useState({
     totalPresent: 0,
@@ -54,7 +57,18 @@ function AdminDashboard({ onLogout }) {
     date.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
 
   const navigateToPage = (pageName, data = null) => {
-    setActiveMenu(pageName === 'eventDetails' ? 'events' : pageName);
+    // close dropdowns when user picks a page
+    setEventsDropdownOpen(false);
+    setArchivesDropdownOpen(false);
+
+    // Keep 'events' menu active for both events sub-pages
+    const eventsPages = ['events', 'eventDetails'];
+    // keep 'archive' menu active for any archive sub-page
+    const archivePages = ['archiveEmployees', 'archiveEvents'];
+    let menu = pageName;
+    if (eventsPages.includes(pageName)) menu = 'events';
+    else if (archivePages.includes(pageName)) menu = 'archive';
+    setActiveMenu(menu);
     setCurrentPage({ page: pageName, data });
   };
 
@@ -72,7 +86,6 @@ function AdminDashboard({ onLogout }) {
     let cumulative = 0;
     return (
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
-        {/* Background ring */}
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="#f0f0f0" strokeWidth={strokeW} />
         {slices.map((s, i) => {
           const dash   = (s.pct / 100) * circ;
@@ -283,11 +296,61 @@ function AdminDashboard({ onLogout }) {
             </span>
           ))}
         </div>
-      </Card.Body>
-    </Card>
-  </Col>
+      
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {departmentData.map((dept, i) => {
+                  const present = dept.present || 0;
+                  const absent  = dept.absent  || 0;
+                  const presentPx = Math.round((present / maxPresent) * 300);
+                  const absentPx  = absent > 0 ? Math.max(Math.round((absent  / maxPresent) * 300), 28) : 0;
+                  return (
+                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <span style={{ fontSize:12, color:'#555', fontWeight:500, width:175, textAlign:'right', flexShrink:0, lineHeight:1.3 }}>
+                        {dept.department_name}
+                      </span>
+                      <div style={{ display:'flex', gap:3, alignItems:'center' }}>
+                        {present > 0 && (
+                          <div style={{
+                            width: presentPx, height:26,
+                            background:'#28a745',
+                            borderRadius: absent === 0 ? 6 : '6px 0 0 6px',
+                            display:'flex', alignItems:'center', justifyContent:'center',
+                            color:'#fff', fontSize:12, fontWeight:700,
+                          }}>
+                            {present}
+                          </div>
+                        )}
+                        {absent > 0 && (
+                          <div style={{
+                            width: absentPx, height:26,
+                            background:'#dc3545',
+                            borderRadius: present === 0 ? 6 : '0 6px 6px 0',
+                            display:'flex', alignItems:'center', justifyContent:'center',
+                            color:'#fff', fontSize:12, fontWeight:700,
+                          }}>
+                            {absent}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-</Row>
+              {/* Legend */}
+              <div style={{ display:'flex', gap:20, marginTop:16, paddingTop:12, borderTop:'1px solid #f0f0f0' }}>
+                {[['#28a745','Present'],['#dc3545','Absent']].map(([color, label]) => (
+                  <span key={label} style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, color:'#555' }}>
+                    <span style={{ width:12, height:12, borderRadius:2, background:color, display:'inline-block' }} />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </Card.Body>
+          </Card>
+        </Col>
+
+      </Row>
     </div>
   );
 
@@ -300,39 +363,109 @@ function AdminDashboard({ onLogout }) {
           </div>
           <div className="sidebar-title"><h5>INSTITUTIONAL ADMIN SUPPORT</h5></div>
         </div>
+
         <nav className="sidebar-nav">
-          <div className={`nav-item ${activeMenu==='dashboard'?'active':''}`} onClick={()=>navigateToPage('dashboard')}>
+
+          {/* Dashboard */}
+          <div
+            className={`nav-item ${activeMenu==='dashboard' ? 'active' : ''}`}
+            onClick={() => navigateToPage('dashboard')}
+          >
             <i className="bi bi-grid-3x3-gap-fill"></i><span>Dashboard</span>
           </div>
-          <div className={`nav-item ${activeMenu==='employees'?'active':''}`} onClick={()=>navigateToPage('employees')}>
+
+          {/* Employees */}
+          <div
+            className={`nav-item ${activeMenu==='employees' ? 'active' : ''}`}
+            onClick={() => navigateToPage('employees')}
+          >
             <i className="bi bi-people-fill"></i><span>Employees</span>
           </div>
+
+          {/* Events — dropdown */}
           <div
-            className={`nav-item nav-item-dropdown ${activeMenu==='events'?'active':''}`}
-            onClick={()=>navigateToPage('events')}
-            onMouseEnter={()=>setEventsDropdownOpen(true)}
-            onMouseLeave={()=>setEventsDropdownOpen(false)}
+            className={`nav-item nav-item-dropdown ${activeMenu==='events' ? 'active' : ''}`}
+            onClick={() => navigateToPage('events')}
+            onMouseEnter={() => setEventsDropdownOpen(true)}
+            onMouseLeave={() => setEventsDropdownOpen(false)}
           >
-            <i className="bi bi-calendar-event-fill"></i><span>Events</span>
-            <i className={`bi bi-chevron-${eventsDropdownOpen?'up':'down'} ms-auto`}></i>
+            <i className="bi bi-calendar-event-fill"></i>
+            <span>Events</span>
+            <i className={`bi bi-chevron-${eventsDropdownOpen ? 'up' : 'down'} ms-auto`}></i>
+
             {eventsDropdownOpen && (
               <div className="dropdown-menu-custom">
-                <div className={`dropdown-item-custom ${currentPage.page==='events'?'active':''}`} onClick={e=>{e.stopPropagation();navigateToPage('events');}}>
-                  <i className="bi bi-list-task me-2"></i><span>Events Overview</span>
+
+                {/* Events Overview */}
+                <div
+                  className={`dropdown-item-custom ${currentPage.page==='events' ? 'active' : ''}`}
+                  onClick={e => { e.stopPropagation(); navigateToPage('events'); }}
+                >
+                  <i className="bi bi-list-task me-2"></i>
+                  <span>Events Overview</span>
                 </div>
-                <div className="dropdown-item-custom" onClick={e=>{e.stopPropagation();navigateToPage('events');}}>
-                  <i className="bi bi-people-fill me-2"></i><span>Event Attendance</span>
+
+                {/* Event Attendance */}
+                <div
+                  className={`dropdown-item-custom ${currentPage.page==='eventDetails' ? 'active' : ''}`}
+                  onClick={e => { e.stopPropagation(); navigateToPage('events'); }}
+                >
+                  <i className="bi bi-people-fill me-2"></i>
+                  <span>Event Attendance</span>
+                </div>
+
+    
+              </div>
+            )}
+          </div>
+
+          {/* Archives — dropdown */}
+          <div
+            className={`nav-item nav-item-dropdown ${activeMenu==='archive' ? 'active' : ''}`}
+            onClick={() => navigateToPage('archiveEvents')}
+            onMouseEnter={() => setArchivesDropdownOpen(true)}
+            onMouseLeave={() => setArchivesDropdownOpen(false)}
+          >
+            <i className="bi bi-archive-fill"></i>
+            <span>Archives</span>
+            <i className={`bi bi-chevron-${archivesDropdownOpen ? 'up' : 'down'} ms-auto`}></i>
+
+            {archivesDropdownOpen && (
+              <div className="dropdown-menu-custom">
+                {/* Employees Archive */}
+                <div
+                  className={`dropdown-item-custom ${currentPage.page==='archiveEmployees' ? 'active' : ''}`}
+                  onClick={e => { e.stopPropagation(); navigateToPage('archiveEmployees'); }}
+                >
+                  <i className="bi bi-person-lines-fill me-2"></i>
+                  <span>Employees</span>
+                </div>
+
+                {/* Events Archive */}
+                <div
+                  className={`dropdown-item-custom ${currentPage.page==='archiveEvents' ? 'active' : ''}`}
+                  onClick={e => { e.stopPropagation(); navigateToPage('archiveEvents'); }}
+                >
+                  <i className="bi bi-calendar-event-fill me-2"></i>
+                  <span>Events</span>
                 </div>
               </div>
             )}
           </div>
-          <div className={`nav-item ${activeMenu==='entryExit'?'active':''}`} onClick={()=>navigateToPage('entryExit')}>
+
+          {/* Entry / Exit */}
+          <div
+            className={`nav-item ${activeMenu==='entryExit' ? 'active' : ''}`}
+            onClick={() => navigateToPage('entryExit')}
+          >
             <i className="bi bi-box-arrow-right"></i><span>Entry/Exit</span>
           </div>
           <div className={`nav-item ${activeMenu==='settings'?'active':''}`} onClick={()=>navigateToPage('settings')}>
             <i className="bi bi-gear-fill"></i><span>Settings</span>
           </div>
+
         </nav>
+
         <div className="sidebar-footer">
           <button className="sign-out-btn" onClick={onLogout}>
             <i className="bi bi-box-arrow-right"></i><span>SIGN OUT</span>
@@ -348,10 +481,12 @@ function AdminDashboard({ onLogout }) {
         <div className="content-overlay">
           {currentPage.page==='dashboard'    && renderDashboard()}
           {currentPage.page==='employees'    && <EmployeesPage />}
-          {currentPage.page==='events'       && <EventsPage onNavigate={(page,data)=>navigateToPage(page,data)} />}
-          {currentPage.page==='eventDetails' && <EventDetailsPage eventData={currentPage.data} onNavigate={page=>navigateToPage(page)} />}
+          {currentPage.page==='events'       && <EventsPage onNavigate={(page, data) => navigateToPage(page, data)} />}
+          {currentPage.page==='eventDetails' && <EventDetailsPage eventData={currentPage.data} onNavigate={page => navigateToPage(page)} />}
           {currentPage.page==='entryExit'    && <EntryExitPage />}
           {currentPage.page==='settings'     && <Settingspage />}
+          {currentPage.page==='archiveEvents' && <Eventsarchives onNavigate={(page, data) => navigateToPage(page, data)} />}
+          {currentPage.page==='archiveEmployees' && <EmployeesArchive onNavigate={(page, data) => navigateToPage(page, data)} />}
         </div>
       </div>
     </div>
