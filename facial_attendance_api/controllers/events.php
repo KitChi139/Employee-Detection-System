@@ -1,12 +1,18 @@
 <?php
 header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST");
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type");
 
 require_once("../config/database.php");
 
 $method = $_SERVER['REQUEST_METHOD'];
+
+// Handle preflight
+if ($method === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
 
 
 // ======================================================
@@ -206,6 +212,155 @@ if ($method === 'POST') {
     exit;
 }
 
+// ======================================================
+// UPDATE EVENT
+// ======================================================
+if ($method === 'PUT') {
+
+    $event_id = $_GET["id"] ?? null;
+    if (!$event_id) {
+        echo json_encode([
+            "error" => true,
+            "message" => "Event ID is required"
+        ]);
+        exit;
+    }
+
+    $data = json_decode(file_get_contents("php://input"), true);
+
+    if (
+        empty($data["event_name"]) ||
+        empty($data["eventtype_ID"]) ||
+        empty($data["location_ID"]) ||
+        empty($data["event_date"]) ||
+        empty($data["event_time"])
+    ) {
+        echo json_encode([
+            "error" => true,
+            "message" => "Missing required fields"
+        ]);
+        exit;
+    }
+
+    try {
+        // Try update with event_date/event_time/description
+        $query1 = "
+            UPDATE events
+            SET event_name   = ?,
+                eventtype_ID = ?,
+                location_ID  = ?,
+                event_date   = ?,
+                event_time   = ?,
+                description  = ?
+            WHERE event_ID   = ?
+        ";
+        $stmt = $conn->prepare($query1);
+        $stmt->execute([
+            $data["event_name"],
+            $data["eventtype_ID"],
+            $data["location_ID"],
+            $data["event_date"],
+            $data["event_time"],
+            $data["description"] ?? null,
+            $event_id
+        ]);
+
+        if ($stmt->rowCount() > 0) {
+            echo json_encode([
+                "success" => true,
+                "message" => "Event updated successfully"
+            ]);
+        } else {
+            echo json_encode([
+                "success" => true,
+                "message" => "No changes made"
+            ]);
+        }
+    } catch (Exception $e1) {
+        try {
+            // Fallback update with date/time/event_desc
+            $query2 = "
+                UPDATE events
+                SET event_name   = ?,
+                    eventtype_ID = ?,
+                    location_ID  = ?,
+                    date         = ?,
+                    time         = ?,
+                    event_desc   = ?
+                WHERE event_ID   = ?
+            ";
+            $stmt = $conn->prepare($query2);
+            $stmt->execute([
+                $data["event_name"],
+                $data["eventtype_ID"],
+                $data["location_ID"],
+                $data["event_date"],
+                $data["event_time"],
+                $data["description"] ?? null,
+                $event_id
+            ]);
+
+            if ($stmt->rowCount() > 0) {
+                echo json_encode([
+                    "success" => true,
+                    "message" => "Event updated successfully"
+                ]);
+            } else {
+                echo json_encode([
+                    "success" => true,
+                    "message" => "No changes made"
+                ]);
+            }
+        } catch (Exception $e2) {
+            echo json_encode([
+                "error" => true,
+                "message" => $e2->getMessage()
+            ]);
+        }
+    }
+
+    exit;
+}
+
+// ======================================================
+// DELETE EVENT
+// ======================================================
+if ($method === 'DELETE') {
+
+    $event_id = $_GET["id"] ?? null;
+
+    if (!$event_id) {
+        echo json_encode([
+            "error" => true,
+            "message" => "Event ID is required"
+        ]);
+        exit;
+    }
+
+    try {
+        $stmt = $conn->prepare("DELETE FROM events WHERE event_ID = ?");
+        $stmt->execute([$event_id]);
+
+        if ($stmt->rowCount() > 0) {
+            echo json_encode([
+                "success" => true,
+                "message" => "Event deleted successfully"
+            ]);
+        } else {
+            echo json_encode([
+                "error" => true,
+                "message" => "Event not found"
+            ]);
+        }
+    } catch (Exception $e) {
+        echo json_encode([
+            "error" => true,
+            "message" => $e->getMessage()
+        ]);
+    }
+
+    exit;
+}
 
 // ======================================================
 // INVALID METHOD

@@ -7,6 +7,14 @@ require_once("../config/database.php");
 $event_id = $_GET["event_id"] ?? ($_GET["event_ID"] ?? 0);
 
 try {
+    // Check for is_archived column existence
+    $archivedCondition = "";
+    try {
+        $conn->query("SELECT is_archived FROM employees LIMIT 1");
+        // Only show employees who are NOT archived OR who have an attendance record for this event
+        $archivedCondition = " WHERE (e.is_archived = 0 OR a.attendance_ID IS NOT NULL)";
+    } catch (Exception $e_col) { }
+
     $query = "
         SELECT 
             e.employee_code,
@@ -20,6 +28,7 @@ try {
         LEFT JOIN attendance a 
             ON e.employee_ID = a.employee_ID
             AND a.event_ID = ?
+        $archivedCondition
         ORDER BY e.employee_lastName, e.employee_firstName
     ";
 

@@ -1,7 +1,7 @@
 <?php
 header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, DELETE");
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE");
 header("Access-Control-Allow-Headers: Content-Type");
 
 require_once("../config/database.php");
@@ -14,6 +14,24 @@ $method = $_SERVER['REQUEST_METHOD'];
 // ======================================================
 if ($method === 'GET') {
 
+    // --- Check for is_archived column existence once ---
+    static $hasArchivedCol = null;
+    if ($hasArchivedCol === null) {
+        try {
+            $conn->query("SELECT is_archived FROM employees LIMIT 1");
+            $hasArchivedCol = true;
+        } catch (Exception $e) {
+            $hasArchivedCol = false;
+        }
+    }
+
+    $whereClause = "";
+    if ($hasArchivedCol) {
+        // If archived=1 is passed, show ONLY archived. Otherwise show ONLY active.
+        $showArchived = (isset($_GET['archived']) && $_GET['archived'] == '1') ? 1 : 0;
+        $whereClause = " WHERE e.is_archived = $showArchived ";
+    }
+
     try {
         // Try schema with department/position/email singular table names and columns *_name
         $q1 = "
@@ -22,14 +40,18 @@ if ($method === 'GET') {
                 e.employee_code,
                 e.employee_firstName AS employee_firstName,
                 e.employee_lastName AS employee_LastName,
+                e.department_ID,
+                e.position_ID,
+                e.email_ID,
                 d.department_name,
                 p.position_name AS position,
                 em.email_address AS email,
-                e.created_at
+                e.created_at" . ($hasArchivedCol ? ", e.is_archived" : "") . "
             FROM employees e
             LEFT JOIN department d  ON e.department_ID = d.department_ID
             LEFT JOIN position  p   ON e.position_ID  = p.position_ID
             LEFT JOIN email     em  ON e.email_ID     = em.email_ID
+            $whereClause
             ORDER BY e.employee_lastName ASC
         ";
         $stmt = $conn->prepare($q1);
@@ -45,14 +67,18 @@ if ($method === 'GET') {
                     e.employee_code,
                     e.employee_firstName AS employee_firstName,
                     e.employee_lastName AS employee_LastName,
+                    e.department_ID,
+                    e.position_ID,
+                    e.email_ID,
                     d.department_name,
                     p.position AS position,
                     em.email AS email,
-                    e.created_at
+                    e.created_at" . ($hasArchivedCol ? ", e.is_archived" : "") . "
                 FROM employees e
                 LEFT JOIN department d  ON e.department_ID = d.department_ID
                 LEFT JOIN position  p   ON e.position_ID  = p.position_ID
                 LEFT JOIN email     em  ON e.email_ID     = em.email_ID
+                $whereClause
                 ORDER BY e.employee_lastName ASC
             ";
             $stmt = $conn->prepare($q2);
@@ -68,14 +94,18 @@ if ($method === 'GET') {
                         e.employee_code,
                         e.employee_firstName AS employee_firstName,
                         e.employee_lastName AS employee_LastName,
+                        e.department_ID,
+                        e.position_ID,
+                        e.email_ID,
                         d.department_name,
                         p.position_name AS position,
                         em.email_address AS email,
-                        e.created_at
+                        e.created_at" . ($hasArchivedCol ? ", e.is_archived" : "") . "
                     FROM employees e
                     LEFT JOIN departments d ON e.department_ID = d.department_ID
                     LEFT JOIN positions  p  ON e.position_ID  = p.position_ID
                     LEFT JOIN emails     em ON e.email_ID     = em.email_ID
+                    $whereClause
                     ORDER BY e.employee_lastName ASC
                 ";
                 $stmt = $conn->prepare($q3);
@@ -91,14 +121,18 @@ if ($method === 'GET') {
                             e.employee_code,
                             e.employee_firstName AS employee_firstName,
                             e.employee_lastName AS employee_LastName,
+                            e.department_ID,
+                            e.position_ID,
+                            e.email_ID,
                             d.department_name,
                             p.position AS position,
                             em.email AS email,
-                            e.created_at
+                            e.created_at" . ($hasArchivedCol ? ", e.is_archived" : "") . "
                         FROM employees e
                         LEFT JOIN departments d ON e.department_ID = d.department_ID
                         LEFT JOIN positions  p  ON e.position_ID  = p.position_ID
                         LEFT JOIN emails     em ON e.email_ID     = em.email_ID
+                        $whereClause
                         ORDER BY e.employee_lastName ASC
                     ";
                     $stmt = $conn->prepare($q4);
@@ -188,7 +222,7 @@ if ($method === 'POST') {
 
 
 // ======================================================
-// DELETE EMPLOYEE
+// DELETE EMPLOYEE (ARCHIVE)
 // ======================================================
 if ($method === 'DELETE') {
 
@@ -203,14 +237,64 @@ if ($method === 'DELETE') {
     }
 
     try {
+        // Soft delete (set is_archived = 1)
+        $stmt = $conn->prepare("UPDATE employees SET is_archived = 1 WHERE employee_ID = ?");
+        $stmt->execute([$employee_id]);
+        
+        if ($stmt->rowCount() > 0) {
+            echo json_encode([
+                "success" => true,
+                "message" => "Employee moved to archive successfully"
+            ]);
+        } else {
+            echo json_encode([
+                "error" => true,
+                "message" => "Employee not found or already archived"
+            ]);
+        }
 
-        $stmt = $conn->prepare("DELETE FROM employees WHERE employee_ID = ?");
+    } catch (Exception $e) {
+        echo json_encode([
+            "error" => true,
+            "message" => $e->getMessage()
+        ]);
+    }
+
+    exit;
+}
+
+
+// ======================================================
+// RESTORE EMPLOYEE (UN-ARCHIVE)
+// ======================================================
+if ($method === 'PUT') {
+
+    $employee_id = $_GET["id"] ?? null;
+
+    if (!$employee_id) {
+        echo json_encode([
+            "error" => true,
+            "message" => "Employee ID required"
+        ]);
+        exit;
+    }
+
+    try {
+        // Restore (set is_archived = 0)
+        $stmt = $conn->prepare("UPDATE employees SET is_archived = 0 WHERE employee_ID = ?");
         $stmt->execute([$employee_id]);
 
-        echo json_encode([
-            "success" => true,
-            "message" => "Employee deleted successfully"
-        ]);
+        if ($stmt->rowCount() > 0) {
+            echo json_encode([
+                "success" => true,
+                "message" => "Employee restored successfully"
+            ]);
+        } else {
+            echo json_encode([
+                "error" => true,
+                "message" => "Employee not found or already active"
+            ]);
+        }
 
     } catch (Exception $e) {
         echo json_encode([

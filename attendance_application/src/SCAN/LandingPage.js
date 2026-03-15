@@ -70,7 +70,7 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
 
     if (found) {
       setRecognizedUser({
-        name: `${found.employee_firstName} ${(found.employee_LastName || found.employee_lastName || '')}`.trim(),
+        name: `${found.employee_firstName} ${found.employee_LastName}`,
         id: found.employee_code,
         department: found.department_name,
         role: found.position,
@@ -142,7 +142,9 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
         }
 
         const empArr = Array.isArray(employeesData) ? employeesData : (employeesData?.data ?? []);
-        setEmployees(Array.isArray(empArr) ? empArr : []);
+        // Only load active employees (is_archived != 1)
+        const activeEmps = (Array.isArray(empArr) ? empArr : []).filter(e => e.is_archived != 1);
+        setEmployees(activeEmps);
       } catch (error) {
         console.error('Failed to load initial data:', error);
         setDataError(error.message || 'Failed to load events or employees.');
@@ -182,7 +184,7 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
         if (employees.length) {
           const first = employees[0];
           const detectedEmployee = {
-            name: `${first.employee_firstName} ${(first.employee_LastName || first.employee_lastName || '')}`.trim(),
+            name: `${first.employee_firstName} ${first.employee_LastName}`,
             id: first.employee_code,
             department: first.department_name,
             role: first.position,

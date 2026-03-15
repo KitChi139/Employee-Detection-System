@@ -3,6 +3,8 @@ import { Row, Col, Card, Form, Button, Badge, Modal } from 'react-bootstrap';
 import {
   getEvents,
   createEvent,
+  updateEvent,
+  deleteEvent,
   getEventTypes,
   getLocations
 } from '../api';
@@ -19,6 +21,8 @@ function EventsPage({ onNavigate }) {
   const [selectedEventType, setSelectedEventType] = useState('All Events');
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
   const [loadError, setLoadError] = useState('');
   const [createError, setCreateError] = useState('');
@@ -86,6 +90,8 @@ function EventsPage({ onNavigate }) {
   // =========================================
 
   const openCreateModal = () => {
+    setIsEditing(false);
+    setEditingId(null);
     setNewEvent({
       event_name: '',
       eventtype_ID: '',
@@ -97,7 +103,25 @@ function EventsPage({ onNavigate }) {
     setShowCreateModal(true);
   };
 
-  const closeCreateModal = () => setShowCreateModal(false);
+  const openEditModal = (ev) => {
+    setIsEditing(true);
+    setEditingId(ev.event_ID);
+    setNewEvent({
+      event_name: ev.event_name || '',
+      eventtype_ID: ev.eventtype_ID || '',
+      location_ID: ev.location_ID || '',
+      event_date: ev.event_date || '',
+      event_time: ev.event_time || '',
+      description: ev.description || ''
+    });
+    setShowCreateModal(true);
+  };
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setIsEditing(false);
+    setEditingId(null);
+  };
 
   const handleSubmitCreate = async (e) => {
     e.preventDefault();
@@ -105,10 +129,19 @@ function EventsPage({ onNavigate }) {
     setCreateSuccess('');
     try {
       setCreating(true);
-      const res = await createEvent(newEvent);
+      let res;
+
+      if (isEditing && editingId) {
+        res = await updateEvent(editingId, newEvent);
+      } else {
+        res = await createEvent(newEvent);
+      }
+
       await loadEvents();
       closeCreateModal();
-      setCreateSuccess(res?.message || 'Event created successfully');
+      setCreateSuccess(
+        res?.message || (isEditing ? 'Event updated successfully' : 'Event created successfully')
+      );
       setTimeout(() => setCreateSuccess(''), 4000);
     } catch (err) {
       const msg = err?.message || 'Failed to create event. Please check "events.php".';
@@ -116,6 +149,21 @@ function EventsPage({ onNavigate }) {
       setTimeout(() => setCreateError(''), 5000);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDeleteEvent = async (ev, e) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this event?')) return;
+    try {
+      const res = await deleteEvent(ev.event_ID);
+      await loadEvents();
+      setCreateSuccess(res?.message || 'Event deleted successfully');
+      setTimeout(() => setCreateSuccess(''), 4000);
+    } catch (err) {
+      const msg = err?.message || 'Failed to delete event.';
+      setCreateError(msg);
+      setTimeout(() => setCreateError(''), 5000);
     }
   };
 
@@ -298,7 +346,29 @@ function EventsPage({ onNavigate }) {
     );
   })()}
 
-</div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="ms-3 d-flex flex-column align-items-end">
+                    <Button
+                      variant="outline-primary"
+                      size="sm"
+                      className="mb-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditModal(event);
+                      }}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline-danger"
+                      size="sm"
+                      onClick={(e) => handleDeleteEvent(event, e)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
 
                 </Card.Body>
               </Card>
@@ -324,7 +394,7 @@ function EventsPage({ onNavigate }) {
         backdrop="static"
       >
         <Modal.Header closeButton>
-          <Modal.Title>Create New Event</Modal.Title>
+          <Modal.Title>{isEditing ? 'Edit Event' : 'Create New Event'}</Modal.Title>
         </Modal.Header>
 
         <Modal.Body>

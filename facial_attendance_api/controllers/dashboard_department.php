@@ -8,11 +8,18 @@ $today = date("Y-m-d");
 
 try {
 
+    // Check for is_archived column to exclude archived employees
+    $archivedCondition = "";
+    try {
+        $conn->query("SELECT is_archived FROM employees LIMIT 1");
+        $archivedCondition = " AND e.is_archived = 0";
+    } catch (Exception $e_col) { }
+
     $query = "
         SELECT 
             d.department_ID,
             d.department_name,
-            COUNT(e.employee_ID) AS totalEmployees,
+            COUNT(CASE WHEN e.employee_ID IS NOT NULL $archivedCondition THEN e.employee_ID END) AS totalEmployees,
             COUNT(a.attendance_ID) AS presentCount
         FROM department d
         LEFT JOIN employees e ON d.department_ID = e.department_ID

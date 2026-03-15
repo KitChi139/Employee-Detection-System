@@ -8,6 +8,8 @@ function EntryExitPage() {
   const [logs, setLogs] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDepartment, setSelectedDepartment] = useState('All Departments');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // ===============================
   // LOAD DATA FROM DATABASE
@@ -18,8 +20,17 @@ function EntryExitPage() {
   }, []);
 
   const loadLogs = async () => {
-    const data = await getEntryExitLogs();
-    setLogs(data);
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await getEntryExitLogs();
+      setLogs(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load entry/exit logs:', err);
+      setError(err.message || 'Failed to load logs. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // ===============================
@@ -103,6 +114,14 @@ function EntryExitPage() {
       <Card className="content-card">
         <Card.Body>
 
+          {error && (
+            <div className="alert alert-danger mb-3">
+              <i className="bi bi-exclamation-triangle-fill me-2"></i>
+              {error}
+              <Button variant="link" className="p-0 ms-2" onClick={loadLogs}>Retry</Button>
+            </div>
+          )}
+
           <Row className="mb-3">
             <Col md={6}>
               <Form.Control
@@ -125,47 +144,56 @@ function EntryExitPage() {
             </Col>
           </Row>
 
-          <Table striped bordered hover>
-            <thead>
-              <tr>
-                <th>Date & Time</th>
-                <th>Type</th>
-                <th>Employee Code</th>
-                <th>Name</th>
-                <th>Department</th>
-                <th>Location</th>
-              </tr>
-            </thead>
-            <tbody>
-
-              {filteredLogs.length > 0 ? (
-                filteredLogs.map((log, index) => (
-                  <tr key={index}>
-                    <td>{log.timestamp}</td>
-
-                    <td>
-                      <span className={`type-badge-ee ${getTypeBadgeClass(log.type)}`}>
-                        <i className={`bi ${getTypeIcon(log.type)} me-1`}></i>
-                        {log.type}
-                      </span>
-                    </td>
-
-                    <td>{log.employee_code}</td>
-                    <td>{log.fullName}</td>
-                    <td>{log.department_name}</td>
-                    <td>{log.location || 'Main Gate'}</td>
-                  </tr>
-                ))
-              ) : (
+          <div className="table-responsive">
+            <Table striped bordered hover>
+              <thead>
                 <tr>
-                  <td colSpan="6" style={{ textAlign: 'center' }}>
-                    No logs found
-                  </td>
+                  <th>Date & Time</th>
+                  <th>Type</th>
+                  <th>Employee Code</th>
+                  <th>Name</th>
+                  <th>Department</th>
+                  <th>Location</th>
                 </tr>
-              )}
+              </thead>
+              <tbody>
 
-            </tbody>
-          </Table>
+                {loading ? (
+                  <tr>
+                    <td colSpan="6" style={{ textAlign: 'center' }}>
+                      <div className="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                      Loading logs...
+                    </td>
+                  </tr>
+                ) : filteredLogs.length > 0 ? (
+                  filteredLogs.map((log, index) => (
+                    <tr key={index}>
+                      <td>{log.timestamp}</td>
+
+                      <td>
+                        <span className={`type-badge-ee ${getTypeBadgeClass(log.type)}`}>
+                          <i className={`bi ${getTypeIcon(log.type)} me-1`}></i>
+                          {log.type}
+                        </span>
+                      </td>
+
+                      <td>{log.employee_code}</td>
+                      <td>{log.fullName}</td>
+                      <td>{log.department_name}</td>
+                      <td>{log.location || 'Main Gate'}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="6" style={{ textAlign: 'center' }}>
+                      No logs found
+                    </td>
+                  </tr>
+                )}
+
+              </tbody>
+            </Table>
+          </div>
 
         </Card.Body>
       </Card>

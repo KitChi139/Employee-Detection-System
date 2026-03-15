@@ -11,9 +11,17 @@ try {
     $response = [];
 
     // ==================================
-    // TOTAL EMPLOYEES
+    // TOTAL EMPLOYEES (EXCLUDING ARCHIVED)
     // ==================================
-    $stmt = $conn->prepare("SELECT COUNT(*) as total FROM employees");
+    $archivedFilter = "";
+    try {
+        $conn->query("SELECT is_archived FROM employees LIMIT 1");
+        $archivedFilter = " WHERE is_archived = 0";
+    } catch (Exception $e_col) {
+        // column doesn't exist, no filter
+    }
+
+    $stmt = $conn->prepare("SELECT COUNT(*) as total FROM employees" . $archivedFilter);
     $stmt->execute();
     $totalEmployees = (int)$stmt->fetch(PDO::FETCH_ASSOC)["total"];
 

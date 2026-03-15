@@ -1,4 +1,5 @@
 import axios from "axios";
+import 'bootstrap/dist/css/bootstrap.min.css';
 
 // ====================================
 // CONFIGURATION
@@ -71,9 +72,9 @@ export const resetPasswordWithOtp = async ({ email, otp, new_password }) => {
 // EMPLOYEE ENDPOINTS
 // ====================================
 
-export const getEmployees = async () => {
+export const getEmployees = async (params = {}) => {
   try {
-    const { data } = await api.get("/employee.php");
+    const { data } = await api.get("/employee.php", { params });
     return data;
   } catch (error) {
     handleError(error);
@@ -92,6 +93,24 @@ export const addEmployee = async (employeeData) => {
 export const deleteEmployee = async (id) => {
   try {
     const { data } = await api.delete(`/employee.php?id=${id}`);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const restoreEmployee = async (id) => {
+  try {
+    const { data } = await api.put(`/employee.php?id=${id}`);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const updateEmployee = async (employeeData) => {
+  try {
+    const { data } = await api.post("/employee_update.php", employeeData);
     return data;
   } catch (error) {
     handleError(error);
@@ -161,6 +180,15 @@ export const deleteEvent = async (id) => {
   }
 };
 
+export const updateEvent = async (id, eventData) => {
+  try {
+    const { data } = await api.put(`/events.php?id=${id}`, eventData);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
 export const getEventTypes = async () => {
   try {
     const { data } = await api.get("/eventtype.php");
@@ -191,6 +219,93 @@ export const getDepartments = async () => {
 export const getPositions = async () => {
   try {
     const { data } = await api.get("/position.php");
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const addDepartment = async ({ department_name }) => {
+  try {
+    const { data } = await api.post("/department.php", { department_name });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const addPosition = async ({ position_name }) => {
+  try {
+    const { data } = await api.post("/position.php", { position_name });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const addLocation = async ({ location_name }) => {
+  try {
+    const { data } = await api.post("/location.php", { location_name });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const updateDepartment = async (id, { department_name }) => {
+  try {
+    const { data } = await api.put(`/department.php?id=${id}`, {
+      department_name,
+    });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const deleteDepartment = async (id) => {
+  try {
+    const { data } = await api.delete(`/department.php?id=${id}`);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const updatePosition = async (id, { position_name }) => {
+  try {
+    const { data } = await api.put(`/position.php?id=${id}`, {
+      position_name,
+    });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const deletePosition = async (id) => {
+  try {
+    const { data } = await api.delete(`/position.php?id=${id}`);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const updateLocation = async (id, { location_name }) => {
+  try {
+    const { data } = await api.put(`/location.php?id=${id}`, {
+      location_name,
+    });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const deleteLocation = async (id) => {
+  try {
+    const { data } = await api.delete(`/location.php?id=${id}`);
     return data;
   } catch (error) {
     handleError(error);

@@ -4,6 +4,7 @@ import {
   getEmployees,
   getDepartments,
   getPositions,
+  restoreEmployee,
 } from '../api';
 import './ccs/archives.css';
 
@@ -20,6 +21,7 @@ function EmployeesArchive({ onNavigate }) {
 
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [actionMessage, setActionMessage] = useState('');
 
   // =========================================
   // LOAD DATA
@@ -34,7 +36,7 @@ function EmployeesArchive({ onNavigate }) {
     try {
       setLoadError('');
       const [empsData, deptData, posData] = await Promise.all([
-        getEmployees(),
+        getEmployees({ archived: 1 }),
         getDepartments(),
         getPositions(),
       ]);
@@ -43,8 +45,11 @@ function EmployeesArchive({ onNavigate }) {
       const deptList = Array.isArray(deptData) ? deptData : (deptData?.data ?? []);
       const posList = Array.isArray(posData) ? posData : (posData?.data ?? []);
 
-      // treat all employees as "archived" for now; filtering could be added later
-      setEmployees(empList);
+      // Filter locally as a fallback in case the API doesn't support the param yet
+      // but the API update above handles it for the primary case.
+      const archivedOnly = empList.filter(e => e.is_archived == 1 || e.is_archived === true);
+      
+      setEmployees(archivedOnly.length > 0 ? archivedOnly : empList);
       setDepartments(deptList);
       setPositions(posList);
     } catch (err) {
@@ -53,6 +58,21 @@ function EmployeesArchive({ onNavigate }) {
       setEmployees([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRestore = async (employeeId) => {
+    if (!window.confirm('Restore this employee to active list?')) return;
+    try {
+      setActionMessage('');
+      await restoreEmployee(employeeId);
+      await loadAll();
+      setActionMessage('Employee restored successfully.');
+      setTimeout(() => setActionMessage(''), 4000);
+    } catch (err) {
+      console.error('Failed to restore employee:', err);
+      setActionMessage(err?.message || 'Failed to restore employee.');
+      setTimeout(() => setActionMessage(''), 5000);
     }
   };
 
@@ -189,6 +209,7 @@ function EmployeesArchive({ onNavigate }) {
       {/* ===== RESULTS TABLE ===== */}
       <div className="archive-results mt-3">
         {loadError && <div className="alert alert-danger">{loadError}</div>}
+        {actionMessage && <div className="alert alert-info">{actionMessage}</div>}
         <Table striped bordered hover responsive>
           <thead>
             <tr>
@@ -196,6 +217,7 @@ function EmployeesArchive({ onNavigate }) {
               <th>Name</th>
               <th>Department</th>
               <th>Position</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -205,11 +227,20 @@ function EmployeesArchive({ onNavigate }) {
                 <td>{emp.employee_firstName} {emp.employee_LastName}</td>
                 <td>{emp.department_name}</td>
                 <td>{emp.position}</td>
+                <td>
+                  <Button
+                    variant="success"
+                    size="sm"
+                    onClick={() => handleRestore(emp.employee_ID)}
+                  >
+                    Restore
+                  </Button>
+                </td>
               </tr>
             ))}
             {filteredEmployees.length === 0 && (
               <tr>
-                <td colSpan="4" className="text-center">No records found</td>
+                <td colSpan="5" className="text-center">No records found</td>
               </tr>
             )}
           </tbody>
