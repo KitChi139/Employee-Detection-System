@@ -7,6 +7,7 @@ import {
   restoreEmployee,
 } from '../api';
 import './ccs/archives.css';
+import InfoTooltip from "../components/InfoTooltip";
 
 function EmployeesArchive({ onNavigate }) {
   const [employees, setEmployees] = useState([]);
@@ -141,23 +142,31 @@ function EmployeesArchive({ onNavigate }) {
       <div className="archive-stat-strip">
         <div className="archive-stat-item">
           <span className="archive-stat-value">{totalArchived}</span>
-          <span className="archive-stat-label">Archived Employees</span>
+          <span className="archive-stat-label">
+            Archived Employees <InfoTooltip text="Total number of archived employee records" />
+          </span>
         </div>
         <div className="archive-stat-divider" />
         <div className="archive-stat-item">
           <span className="archive-stat-value">{uniqueDepartments}</span>
-          <span className="archive-stat-label">Departments</span>
+          <span className="archive-stat-label">
+            Departments <InfoTooltip text="Number of departments with archived employees" />
+          </span>
         </div>
         <div className="archive-stat-divider" />
         <div className="archive-stat-item">
           <span className="archive-stat-value">{uniquePositions}</span>
-          <span className="archive-stat-label">Positions</span>
+          <span className="archive-stat-label">
+            Positions <InfoTooltip text="Number of unique positions among archived employees" />
+          </span>
         </div>
       </div>
 
-      {/* ===== FILTERS CARD ===== */}
+      {/* ===== FILTERS + TABLE MERGED CARD ===== */}
       <Card className="archive-filter-card">
         <Card.Body>
+
+          {/* — Filter Header — */}
           <div className="archive-filter-header">
             <span className="archive-filter-title">🗂 Filter Archive</span>
             <div className="archive-view-toggle">
@@ -171,7 +180,7 @@ function EmployeesArchive({ onNavigate }) {
             </div>
           </div>
 
-          <Row className="g-3 align-items-end">
+          <Row className="g-3 align-items-end mb-3">
             <Col md={4}>
               <Form.Control
                 type="text"
@@ -203,49 +212,60 @@ function EmployeesArchive({ onNavigate }) {
               </Form.Select>
             </Col>
           </Row>
+
+          {/* — Divider — */}
+          <hr style={{ margin: '0 0 16px', borderColor: '#f0f0f0' }} />
+
+          {/* — Alerts — */}
+          {loadError    && <div className="alert alert-danger mb-3">{loadError}</div>}
+          {actionMessage && <div className="alert alert-info mb-3">{actionMessage}</div>}
+
+          {/* — Results count — */}
+          <div style={{ fontSize: 12.5, color: '#9ca3af', marginBottom: 10 }}>
+            Showing <strong style={{ color: '#374151' }}>{filteredEmployees.length}</strong> record{filteredEmployees.length !== 1 ? 's' : ''}
+          </div>
+
+          {/* — Table — */}
+          <Table striped bordered hover responsive style={{ marginBottom: 0 }}>
+            <thead>
+              <tr>
+                <th>Employee Code</th>
+                <th>Name</th>
+                <th>Department</th>
+                <th>Position</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredEmployees.map(emp => (
+                <tr key={emp.employee_ID}>
+                  <td>{emp.employee_code}</td>
+                  <td>{emp.employee_firstName} {emp.employee_LastName}</td>
+                  <td>{emp.department_name}</td>
+                  <td>{emp.position}</td>
+                  <td>
+                    <Button
+                      variant="success"
+                      size="sm"
+                      onClick={() => handleRestore(emp.employee_ID)}
+                    >
+                      Restore
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {filteredEmployees.length === 0 && (
+                <tr>
+                  <td colSpan="5" className="text-center text-muted py-4">
+                    No records found
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </Table>
+
         </Card.Body>
       </Card>
-
-      {/* ===== RESULTS TABLE ===== */}
-      <div className="archive-results mt-3">
-        {loadError && <div className="alert alert-danger">{loadError}</div>}
-        {actionMessage && <div className="alert alert-info">{actionMessage}</div>}
-        <Table striped bordered hover responsive>
-          <thead>
-            <tr>
-              <th>Employee Code</th>
-              <th>Name</th>
-              <th>Department</th>
-              <th>Position</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredEmployees.map(emp => (
-              <tr key={emp.employee_ID}>
-                <td>{emp.employee_code}</td>
-                <td>{emp.employee_firstName} {emp.employee_LastName}</td>
-                <td>{emp.department_name}</td>
-                <td>{emp.position}</td>
-                <td>
-                  <Button
-                    variant="success"
-                    size="sm"
-                    onClick={() => handleRestore(emp.employee_ID)}
-                  >
-                    Restore
-                  </Button>
-                </td>
-              </tr>
-            ))}
-            {filteredEmployees.length === 0 && (
-              <tr>
-                <td colSpan="5" className="text-center">No records found</td>
-              </tr>
-            )}
-          </tbody>
-        </Table>
-      </div>
     </div>
   );
 }
