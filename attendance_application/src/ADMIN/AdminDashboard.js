@@ -256,7 +256,7 @@ function AdminDashboard({ onLogout }) {
             return (
               <div key={i} style={{ display:'flex', alignItems:'center', gap:10 }}>
                 {/* Label */}
-                <span style={{ fontSize:11, color:'#555', fontWeight:500, width:150, textAlign:'left', flexShrink:0, lineHeight:1.2 }}>
+                <span style={{ fontSize:15, color:'#555', fontWeight:500, width:150, textAlign:'left', flexShrink:0, lineHeight:1.2 }}>
                   {dept.department_name}
                 </span>
                 {/* Bars */}

@@ -758,3 +758,13 @@
     border: 1px solid #dee2e6 !important;
   }
 }
+
+.modal {
+  z-index: 999999 !important;   /* way higher than normal */
+}
+.modal-dialog {
+  z-index: 1000000 !important;
+}
+.modal-backdrop {
+  z-index: 999998 !important;
+}

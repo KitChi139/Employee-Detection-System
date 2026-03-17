@@ -157,23 +157,47 @@ if ($method === 'GET') {
 // ADD EMPLOYEE
 // ======================================================
 if ($method === 'POST') {
+    
 
     $data = json_decode(file_get_contents("php://input"), true);
 
     $employee_code  = $data["employee_code"] ?? null;
     $firstName      = $data["employee_firstName"] ?? null;
-    $lastName       = $data["employee_lastName"] ?? null;
-    $email_ID       = $data["email_ID"] ?? null;
+    $lastName       = $data["employee_LastName"] ?? null;
+    $email          = $data["email"] ?? null;
     $department_ID  = $data["department_ID"] ?? null;
     $position_ID    = $data["position_ID"] ?? null;
 
-    if (!$employee_code || !$firstName || !$lastName) {
-        echo json_encode([
-            "error" => true,
-            "message" => "Required fields missing"
-        ]);
-        exit;
-    }
+   $missing_fields = [];
+
+   if (!$employee_code) {
+    $missing_fields[] = "employee_code";
+}
+
+if (!$firstName) {
+    $missing_fields[] = "employee_firstName";
+}
+
+if (!$lastName) {
+    $missing_fields[] = "employee_lastName";
+}
+
+
+if (!$department_ID) {
+    $missing_fields[] = "department_ID";
+}
+
+if (!$position_ID) {
+    $missing_fields[] = "position_ID";
+}
+
+if (!empty($missing_fields)) {
+    echo json_encode([
+        "error" => true,
+        "message" => "Required fields missing: " . implode(", ", $missing_fields)
+    ]);
+    exit;
+}
 
     try {
 
@@ -188,6 +212,13 @@ if ($method === 'POST') {
             ]);
             exit;
         }
+
+        $emailQuery = "INSERT INTO email (email) VALUES (?)";
+        $stmtEmail = $conn->prepare($emailQuery);
+        $stmtEmail->execute([$email]);
+
+        // GET GENERATED email_ID
+        $email_ID = $conn->lastInsertId();
 
         $query = "
             INSERT INTO employees
@@ -207,8 +238,10 @@ if ($method === 'POST') {
 
         echo json_encode([
             "success" => true,
-            "message" => "Employee added successfully"
+            "message" => "Employee added successfully",
+            "email_ID" => $email_ID
         ]);
+
 
     } catch (Exception $e) {
         echo json_encode([

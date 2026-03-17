@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Form, Button, Table, Modal, Alert } from 'react-bootstrap';
+import 'bootstrap/dist/css/bootstrap.min.css';
 import { 
   getEmployees, 
   addEmployee, 
@@ -92,6 +93,7 @@ function EmployeesPage() {
   // Modal & Form handlers
   // ────────────────────────────────────────────────
   const openAddModal = () => {
+    console.log("Add button clicked — opening modal");
     setIsEditing(false);
     setEditingId(null);
     setFormData({
@@ -100,6 +102,7 @@ function EmployeesPage() {
     });
     setFeedback({ type: '', message: '' });
     setShowModal(true);
+    console.log("setShowModal(true) just called");
   };
 
   const openEditModal = (emp) => {
@@ -278,7 +281,6 @@ function EmployeesPage() {
         </Card.Body>
       </Card>
 
-      {/* ──── MODAL ──── */}
       <Modal show={showModal} onHide={() => setShowModal(false)} centered size="lg">
         <Modal.Header closeButton>
           <Modal.Title>{isEditing ? 'Edit Employee' : 'Add New Employee'}</Modal.Title>
@@ -371,18 +373,12 @@ function EmployeesPage() {
 
             <Form.Group className="mb-4">
               <Form.Label>Email (optional)</Form.Label>
-              <Form.Select
-                name="email_ID"
-                value={formData.email_ID}
-                onChange={handleChange}
-              >
-                <option value="">— None —</option>
-                {emails.map(em => (
-                  <option key={em.email_ID} value={em.email_ID}>
-                    {em.email}
-                  </option>
-                ))}
-              </Form.Select>
+              <Form.Control
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                  />
             </Form.Group>
 
             <div className="d-flex justify-content-end gap-2">
