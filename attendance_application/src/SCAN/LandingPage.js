@@ -313,14 +313,6 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
         />
       </div>
 
-      <div className="logo-container logo-right">
-        <img 
-          src={`${process.env.PUBLIC_URL}/ccs.png`} 
-          alt="CCS Logo" 
-          className="logo"
-        />
-      </div>
-
       <Container fluid className="main-content px-4">
         <Row className="justify-content-center">
           <Col xs={12} lg={11} xl={10} xxl={9}>
