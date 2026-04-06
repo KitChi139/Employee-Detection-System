@@ -391,8 +391,13 @@ function EmployeesPage() {
         employeeId = result?.employee_ID || result?.id || result?.insertId;
       }
 
-      const photosToSave = imageSlots.filter(s => s !== null).map(s => s.preview);
-      if (employeeId && photosToSave.length > 0) {
+      // Always send the current state of imageSlots to the backend.
+      // Backend will delete existing photos and insert these current ones.
+      const photosToSave = imageSlots
+        .filter(s => s !== null && s.preview)
+        .map(s => s.preview);
+
+      if (employeeId) {
         await saveEmployeePhotos(employeeId, photosToSave);
       }
 
