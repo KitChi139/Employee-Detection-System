@@ -190,32 +190,34 @@ body {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
 }
 
+/* Smaller Camera Container */
+.camera-video-container-small {
+  position: relative;
+  width: 100%;
+  max-width: 1000px;           /* Controls how wide the camera is */
+  margin: 0 auto;             /* Centers the camera */
+  aspect-ratio: 4 / 3;        /* Good aspect ratio for face */
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Keep your old placeholder styles or update them */
 .camera-placeholder {
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #8b9db8;
-  animation: pulse 2s ease-in-out infinite;
+  color: #666;
+  text-align: center;
+  padding: 20px;
 }
 
 .camera-icon-large {
-  font-size: 100px;
-  opacity: 0.6;
-}
-
-.camera-video-container {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  background: #000;
-}
-
-.camera-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  font-size: 3.5rem;          /* Slightly smaller icon for small camera */
+  margin-bottom: 12px;
 }
 
 .detection-overlay {

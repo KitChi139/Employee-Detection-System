@@ -11,7 +11,7 @@ import {
   getPositions,
   getEmailsList,
   getEmployeePhotos,
-  saveEmployeePhotos,
+  saveEmployeeEmbeddings,
 } from '../api';
 import './ccs/employee.css';
 
@@ -80,6 +80,7 @@ function EmployeesPage() {
           faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
           faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
           faceapi.nets.faceExpressionNet.loadFromUri('/models'),
+          faceapi.nets.faceRecognitionNet.loadFromUri('/models'),   // ← ADD THIS LINE
         ]);
         modelsLoadedRef.current = true;
       } catch (err) {
@@ -279,10 +280,34 @@ function EmployeesPage() {
 
     try {
       const photos = await getEmployeePhotos(emp.employee_ID);
-      const list   = Array.isArray(photos) ? photos : [];
-      const slots  = Array(MAX_SLOTS).fill(null).map((_, i) =>
-        list[i] ? { preview: list[i].photo_data, file: null, photo_ID: list[i].photo_ID } : null
-      );
+      const list = Array.isArray(photos) ? photos : [];
+
+      const slots = Array(MAX_SLOTS).fill(null).map((_, i) => {
+        if (!list[i]) return null;
+
+        const item = list[i];
+        let embedding = null;
+
+        // Try to parse if it's already a JSON embedding
+        if (item.photo_data && typeof item.photo_data === 'string') {
+          try {
+            const parsed = JSON.parse(item.photo_data);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              embedding = parsed;
+            }
+          } catch (e) {
+            // It's old base64 image → keep as preview only
+          }
+        }
+
+        return {
+          preview: item.photo_data,     // still show the image if it's base64
+          embedding: embedding,         // null for old photos, array for new ones
+          photo_ID: item.photo_ID,
+          isOldBase64: !embedding
+        };
+      });
+
       setImageSlots(slots);
     } catch (err) {
       console.error('Could not load employee photos', err);
@@ -337,20 +362,46 @@ function EmployeesPage() {
     }
   };
 
-  const capturePhoto = () => {
-    if (!videoRef.current) return;
-    const canvas = document.createElement('canvas');
-    canvas.width  = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
-    const dataUrl = canvas.toDataURL('image/jpeg');
+  const capturePhoto = async () => {
+  if (!videoRef.current) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = videoRef.current.videoWidth;
+  canvas.height = videoRef.current.videoHeight;
+  canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
+  const dataUrl = canvas.toDataURL('image/jpeg');
+
+  try {
+    const img = await faceapi.fetchImage(dataUrl);
+    const detection = await faceapi
+      .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 }))
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    if (!detection) {
+      alert("No face detected clearly. Please recapture.");
+      return;
+    }
+
+    const embedding = Array.from(detection.descriptor);
+
     setImageSlots(prev => {
       const updated = [...prev];
-      updated[cameraSlot] = { preview: dataUrl, file: null };
+      updated[cameraSlot] = { 
+        preview: dataUrl,      // for display
+        embedding: embedding,  // for saving
+        file: null 
+      };
       return updated;
     });
-    closeCamera();
-  };
+
+  } catch (err) {
+    console.error(err);
+    alert("Failed to extract face embedding.");
+  }
+
+  closeCamera();
+};
 
   const closeCamera = () => {
     if (detectionLoopRef.current) {
@@ -393,12 +444,12 @@ function EmployeesPage() {
 
       // Always send the current state of imageSlots to the backend.
       // Backend will delete existing photos and insert these current ones.
-      const photosToSave = imageSlots
-        .filter(s => s !== null && s.preview)
-        .map(s => s.preview);
+      const embeddingsToSave = imageSlots
+        .filter(slot => slot && slot.embedding)
+        .map(slot => slot.embedding);
 
-      if (employeeId) {
-        await saveEmployeePhotos(employeeId, photosToSave);
+      if (employeeId && embeddingsToSave.length > 0) {
+        await saveEmployeeEmbeddings(employeeId, embeddingsToSave);
       }
 
       setShowModal(false);

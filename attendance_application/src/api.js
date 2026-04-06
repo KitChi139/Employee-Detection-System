@@ -130,11 +130,11 @@ export const getEmployeePhotos = async (employeeId) => {
   }
 };
 
-export const saveEmployeePhotos = async (employeeId, photos) => {
+export const saveEmployeeEmbeddings = async (employeeId, embeddings) => {
   try {
-    const { data } = await api.post(`/employee_photos.php`, {
+    const { data } = await api.post("/employee_photos.php", {
       employee_id: employeeId,
-      photos,
+      photos: embeddings   // array of number arrays
     });
     return data;
   } catch (error) {

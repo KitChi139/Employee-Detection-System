@@ -2,8 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { Container, Row, Col, Card, Button, Badge, Modal, Form } from 'react-bootstrap';
 import './LandingPage.css';
-import { getEvents, getEmployees, markAttendance } from '../api';
+import { getEvents, getEmployees, markAttendance, getEmployeePhotos } from '../api';
 import LoginPage from './Adminlogin';
+import * as faceapi from 'face-api.js';
+
 
 
 
@@ -37,6 +39,13 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   const [employees, setEmployees]           = useState([]);
   const [dataLoading, setDataLoading]       = useState(false);
   const [dataError, setDataError]           = useState('');
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const detectionLoopRef = useRef(null);
+  const [recognitionConfidence, setRecognitionConfidence] = useState(0);
+  const [recognitionTimer, setRecognitionTimer] = useState(null);
+  const [showConfirmButtons, setShowConfirmButtons] = useState(false);
+  const [currentDetectedName, setCurrentDetectedName] = useState('');
+  const [currentConfidence, setCurrentConfidence] = useState(0);
 
   const handleManualIdKey = (digit) => {
     setManualError('');
@@ -129,43 +138,71 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        setDataLoading(true);
-        setDataError('');
+useEffect(() => {
+  const loadInitialData = async () => {
+    try {
+      setDataLoading(true);
+      setDataError('');
 
-        const [eventsData, employeesData] = await Promise.all([
-          getEvents({ archived: 0 }),
-          getEmployees(),
-        ]);
+      const [eventsData, employeesData] = await Promise.all([
+        getEvents({ archived: 0 }),
+        getEmployees(),
+      ]);
 
-        const eventsArr = Array.isArray(eventsData) ? eventsData : (eventsData?.data ?? []);
-        if (Array.isArray(eventsArr)) {
-          const formattedEvents = eventsArr.map(event => ({
-            id: event.event_ID,
-            name: event.event_name,
-            time: event.event_time ?? event.time ?? '',
-            description: event.description ?? event.event_desc ?? '',
-            type: event.eventtype_name ?? event.eventtype ?? '',
-          }));
-          setAvailableEvents(formattedEvents);
-        }
-
-        const empArr = Array.isArray(employeesData) ? employeesData : (employeesData?.data ?? []);
-        // Only load active employees (is_archived != 1)
-        const activeEmps = (Array.isArray(empArr) ? empArr : []).filter(e => e.is_archived != 1);
-        setEmployees(activeEmps);
-      } catch (error) {
-        console.error('Failed to load initial data:', error);
-        setDataError(error.message || 'Failed to load events or employees.');
-      } finally {
-        setDataLoading(false);
+      // Events
+      const eventsArr = Array.isArray(eventsData) ? eventsData : (eventsData?.data ?? []);
+      if (Array.isArray(eventsArr)) {
+        const formattedEvents = eventsArr.map(event => ({
+          id: event.event_ID,
+          name: event.event_name,
+          time: event.event_time ?? event.time ?? '',
+          description: event.description ?? event.event_desc ?? '',
+          type: event.eventtype_name ?? event.eventtype ?? '',
+        }));
+        setAvailableEvents(formattedEvents);
       }
-    };
 
-    loadInitialData();
-  }, []);
+      // Employees - Basic info first
+      let empArr = Array.isArray(employeesData) ? employeesData : (employeesData?.data ?? []);
+      const activeEmps = (Array.isArray(empArr) ? empArr : []).filter(e => e.is_archived != 1);
+
+      console.log(`Loaded ${activeEmps.length} active employees (basic info)`);
+
+      // Now fetch embeddings for all active employees
+      const employeesWithEmbeddings = await Promise.all(
+        activeEmps.map(async (emp) => {
+          try {
+            const photosData = await getEmployeePhotos(emp.employee_ID);
+            const photos = Array.isArray(photosData) ? photosData : (photosData?.data ?? []);
+
+            // Take the first embedding (or combine multiple if you want)
+            if (photos.length > 0 && photos[0].embedding) {
+              return {
+                ...emp,
+                embedding: photos[0].embedding   // array of 128 numbers
+              };
+            }
+            return emp; // no embedding
+          } catch (err) {
+            console.warn(`Failed to load embedding for employee ${emp.employee_code}`, err);
+            return emp;
+          }
+        })
+      );
+
+      setEmployees(employeesWithEmbeddings);
+      console.log("Final employees with embeddings:", employeesWithEmbeddings.length);
+
+    } catch (error) {
+      console.error('Failed to load initial data:', error);
+      setDataError(error.message || 'Failed to load events or employees.');
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  loadInitialData();
+}, []);
 
 
   useEffect(() => {
@@ -186,63 +223,224 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   const getSelectedEventDetails = () => {
     return availableEvents.find(event => event.id.toString() === selectedEvent);
   };
-
-  useEffect(() => {
-    if (cameraActive && !recognizedUser && !isDetecting) {
-      setIsDetecting(true);
-   
-      const detectionTimer = setTimeout(() => {
-        if (employees.length) {
-          const first = employees[0];
-          const detectedEmployee = {
-            name: `${first.employee_firstName} ${first.employee_LastName}`,
-            id: first.employee_code,
-            department: first.department_name,
-            role: first.position,
-            employeeId: first.employee_ID,
-            photo: null,
-            lastAction: null
-          };
+    useEffect(() => {
+      const setupBackend = async () => {
+        try {
+          // Force CPU backend to avoid WebGL crash
+          await faceapi.tf.setBackend('cpu');
+          await faceapi.tf.ready();   // Important: wait until ready
           
-          setRecognizedUser(detectedEmployee);
+          console.log('✅ Using CPU backend for face-api.js');
+          
+          // Now load your models
+          await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
+            faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
+            faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
+          ]);
+          
+          setModelsLoaded(true);
+          console.log('✅ Models loaded with CPU backend');
+        } catch (err) {
+          console.error('❌ Backend or model loading failed:', err);
         }
-        setIsDetecting(false);
-      }, 3000);
+      };
 
-      return () => clearTimeout(detectionTimer);
+      setupBackend();
+    }, []);
+
+  // Live Face Detection + Overlay (runs continuously while camera is active)
+useEffect(() => {
+  if (!cameraActive || !modelsLoaded || !employees.length) {
+    setCurrentDetectedName('');
+    setCurrentConfidence(0);
+    return;
+  }
+
+ const runRecognition = async () => {
+  const video = videoRef.current;
+  if (!video || video.readyState < 2) return;
+
+  try {
+    const detection = await faceapi
+      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.3 }))
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    if (!detection) {
+      setCurrentDetectedName('');
+      setCurrentConfidence(0);
+      return;
     }
-  }, [cameraActive, recognizedUser, isDetecting, employees]);
 
-  const startCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'user', 
-          width: { ideal: 1920 }, 
-          height: { ideal: 1080 } 
-        } 
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
+    const liveEmbedding = detection.descriptor;
+
+    let bestMatch = null;
+    let bestScore = -Infinity;
+
+    console.log(`\n=== Starting new recognition cycle ===`);
+    console.log(`Comparing with ${employees.length} employees...`);
+
+    for (const emp of employees) {
+      const empCode = emp.employee_code || emp.id || 'unknown';
+
+      if (!emp.embedding) {
+        console.warn(`[${empCode}] No embedding field at all`);
+        continue;
       }
-      setStream(mediaStream);
-      setCameraActive(true);
-      setRecognizedUser(null);
-      setIsDetecting(false);
-    } catch (error) {
-      console.error('Error accessing camera:', error);
-      alert('Unable to access camera. Please check permissions.');
+
+      console.log(`[${empCode}] Embedding type:`, typeof emp.embedding, 
+                  Array.isArray(emp.embedding) ? `(array length: ${emp.embedding.length})` : '');
+
+      let storedArray = null;
+
+      // Try different formats
+      if (Array.isArray(emp.embedding)) {
+        storedArray = emp.embedding;
+      } 
+      else if (typeof emp.embedding === 'string') {
+        try {
+          const parsed = JSON.parse(emp.embedding);
+          if (Array.isArray(parsed)) {
+            storedArray = parsed;
+            console.log(`[${empCode}] Successfully parsed JSON array, length: ${parsed.length}`);
+          } else {
+            console.warn(`[${empCode}] JSON parsed but not an array`);
+          }
+        } catch (e) {
+          console.warn(`[${empCode}] Failed to parse as JSON. First 100 chars:`, 
+                       emp.embedding.substring(0, 100));
+        }
+      }
+
+      if (!Array.isArray(storedArray) || storedArray.length !== 128) {
+        console.warn(`[${empCode}] Invalid embedding - length: ${storedArray?.length || 'not array'}`);
+        continue;
+      }
+
+      const storedEmbedding = new Float32Array(storedArray);
+      const similarity = cosineSimilarity(liveEmbedding, storedEmbedding);
+
+      console.log(`[${empCode}] Similarity: ${similarity.toFixed(4)}`);
+
+      if (similarity > bestScore) {
+        bestScore = similarity;
+        bestMatch = emp;
+      }
     }
+
+    console.log(`Best cosine similarity found: ${bestScore.toFixed(4)}`);
+
+    const MIN_SIMILARITY = 0.40;   // Very lenient for testing
+
+    if (bestMatch && bestScore > MIN_SIMILARITY) {
+      const detectedName = `${bestMatch.employee_firstName} ${bestMatch.employee_LastName}`;
+      const confidencePercent = Math.round(bestScore * 100);
+
+      console.log(`🎉 GOOD MATCH FOUND! ${detectedName} (${confidencePercent}%)`);
+
+      setCurrentDetectedName(detectedName);
+      setCurrentConfidence(confidencePercent);
+
+      const newUser = {
+        name: detectedName,
+        id: bestMatch.employee_code,
+        department: bestMatch.department_name,
+        role: bestMatch.position,
+        employeeId: bestMatch.employee_ID,
+        photo: null,
+        lastAction: null,
+        similarity: bestScore
+      };
+
+      if (!recognizedUser || recognizedUser.employeeId !== newUser.employeeId) {
+        setRecognizedUser(newUser);
+        setRecognitionConfidence(confidencePercent);
+        setShowConfirmButtons(false);
+
+        if (recognitionTimer) clearTimeout(recognitionTimer);
+
+        const timer = setTimeout(() => setShowConfirmButtons(true), 3000);
+        setRecognitionTimer(timer);
+      }
+    } else {
+      setCurrentDetectedName('');
+      setCurrentConfidence(0);
+    }
+  } catch (err) {
+    console.error("Recognition error:", err);
+  }
+};
+
+  const loop = () => {
+    runRecognition();
+    detectionLoopRef.current = requestAnimationFrame(loop);
   };
 
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+  loop();
+
+  return () => {
+    if (detectionLoopRef.current) {
+      cancelAnimationFrame(detectionLoopRef.current);
     }
-    setCameraActive(false);
-    setRecognizedUser(null);
-    setIsDetecting(false);
   };
+}, [cameraActive, modelsLoaded, employees, recognizedUser]);   // ← removed "recognizedUser" from stopping logic
+
+const startCamera = async () => {
+  if (!selectedEvent) {
+    alert("Please select an event first");
+    return;
+  }
+
+  try {
+    const mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'user',
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      }
+    });
+
+    const video = videoRef.current;
+    if (!video) {
+      console.error("Video ref is still null");
+      alert("Video element not ready. Please try again.");
+      return;
+    }
+
+    video.srcObject = mediaStream;
+    setStream(mediaStream);
+
+    // Play the video
+    video.onloadedmetadata = async () => {
+      try {
+        await video.play();
+        console.log("✅ Camera started successfully");
+        setCameraActive(true);
+      } catch (err) {
+        console.error("❌ Video play failed:", err);
+        alert("Camera started but video failed to display");
+      }
+    };
+
+  } catch (error) {
+    console.error("Camera access error:", error);
+    alert(`Cannot access camera: ${error.message || error.name}`);
+  }
+};
+
+const stopCamera = () => {
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    setStream(null);
+  }
+  const video = videoRef.current;
+  if (video) {
+    video.srcObject = null;
+  }
+  setCameraActive(false);
+  setRecognizedUser(null);
+};
 
 
   const submitAttendance = async (type) => {
@@ -307,7 +505,32 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
     };
   }, [stream]);
 
+  useEffect(() => {
+      return () => {
+        if (recognitionTimer) clearTimeout(recognitionTimer);
+      };
+    }, [recognitionTimer]);
+
   const selectedEventDetails = getSelectedEventDetails();
+
+  // Cosine Similarity helper (returns value between -1 and 1, higher = more similar)
+  const cosineSimilarity = (vecA, vecB) => {
+    if (!vecA || !vecB) return -1;
+
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
+    }
+
+    if (normA === 0 || normB === 0) return 0;
+
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  };
 
   return (
     <div className="app-container" style={{
@@ -440,54 +663,102 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
                   </button>
                 </div>
 
-                {/* ── CAMERA MODE  */}
-                {!manualMode && (
-                  <>
-                    <div className="camera-display-wrapper-wide mb-2">
-                      {!cameraActive ? (
-                        <div className="camera-placeholder">
-                          <i className="bi bi-camera camera-icon-large"></i>
-                          <h4 className="mt-3 fw-bold">Camera Ready</h4>
-                          <p className="text-muted">Click "Scan Face" to begin</p>
-                        </div>
-                      ) : (
-                        <div className="camera-video-container">
-                          <video ref={videoRef} autoPlay playsInline className="camera-video" />
-                          {isDetecting && (
-                            <div className="detection-overlay">
-                              <div className="spinner-border text-light" role="status" style={{ width: '4rem', height: '4rem' }}>
-                                <span className="visually-hidden">Detecting face...</span>
-                              </div>
-                              <p className="text-white mt-3 fw-semibold fs-5">Detecting face...</p>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                                {/* ── CAMERA MODE ── */}
+{!manualMode && (
+  <>
+    <div className="camera-video-container-small" style={{ position: 'relative' }}>
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          backgroundColor: '#000',
+          display: cameraActive ? 'block' : 'none',
+          borderRadius: '12px'
+        }}
+      />
 
-                    {!recognizedUser && (
-                      <div className="d-grid">
-                        <Button
-                          variant={cameraActive ? 'danger' : 'success'}
-                          size="lg"
-                          onClick={cameraActive ? stopCamera : startCamera}
-                          className="camera-control-btn"
-                          disabled={!selectedEvent}
-                        >
-                          <i className={`bi bi-${cameraActive ? 'camera-video-off' : 'camera-video'} me-2`}></i>
-                          {cameraActive ? 'Stop Camera' : 'Scan Face'}
-                        </Button>
-                        {!selectedEvent && (
-                          <small className="text-danger text-center mt-2">
-                            <i className="bi bi-exclamation-circle me-1"></i>
-                            Please select an event first
-                          </small>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
+      {/* Placeholder when camera is off */}
+      {!cameraActive && (
+        <div className="camera-placeholder">
+          <i className="bi bi-camera camera-icon-large"></i>
+          <h4 className="mt-3 fw-bold">Camera Ready</h4>
+          <p className="text-muted">Click "Scan Face" to begin</p>
+        </div>
+      )}
 
+      {/* Live Detection Overlay Box - Shows who is being detected */}
+      jsx{/* Live Detection Overlay Box */}
+      {cameraActive && currentDetectedName && (
+        <div style={{
+          position: 'absolute',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(0, 0, 0, 0.88)',
+          color: '#fff',
+          padding: '12px 20px',
+          borderRadius: '10px',
+          fontSize: '15.5px',
+          fontWeight: '600',
+          textAlign: 'center',
+          zIndex: 200,
+          minWidth: '240px',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.6)',
+          border: '2px solid rgba(255,255,255,0.2)'
+        }}>
+          <div style={{ marginBottom: '4px', opacity: 0.9 }}>👤 Detecting</div>
+          <div style={{ fontSize: '17px', fontWeight: '700' }}>
+            {currentDetectedName}
+          </div>
+          <div style={{ 
+            fontSize: '13.5px', 
+            marginTop: '4px',
+            color: currentConfidence > 75 ? '#4ade80' : '#fbbf24' 
+          }}>
+            Confidence: {currentConfidence}%
+          </div>
+        </div>
+      )}
+
+      {/* Camera Active Indicator */}
+      {cameraActive && !currentDetectedName && (
+        <div style={{
+          position: 'absolute',
+          top: 10,
+          left: 10,
+          background: 'rgba(0,0,0,0.75)',
+          color: '#0f0',
+          padding: '5px 10px',
+          borderRadius: '6px',
+          fontSize: '12px',
+          zIndex: 100,
+          pointerEvents: 'none'
+        }}>
+          Camera Active ✓
+        </div>
+      )}
+    </div>
+
+    {!recognizedUser && (
+      <div className="d-grid mt-3">
+        <Button
+          variant={cameraActive ? 'danger' : 'success'}
+          size="lg"
+          onClick={cameraActive ? stopCamera : startCamera}
+          disabled={!selectedEvent}
+        >
+          <i className={`bi bi-${cameraActive ? 'camera-video-off' : 'camera-video'} me-2`}></i>
+          {cameraActive ? 'Stop Camera' : 'Scan Face'}
+        </Button>
+      </div>
+    )}
+  </>
+)}
                 {/* ── MANUAL ID MODE  */}
                 {manualMode && !recognizedUser && (
                   <div className="manual-id-section">
@@ -546,15 +817,16 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
                   </div>
                 )}
 
-                {/* ── RECOGNIZED / FOUND USER CARD  */}
+                {/* ── RECOGNIZED / FOUND USER CARD ── */}
                 {recognizedUser && (
-                  <Card className="user-recognition-card border-0 bg-light">
+                  <Card className="user-recognition-card border-0 bg-light mt-3">
                     <Card.Body className="p-4">
-                      {manualMode && (
-                        <div className="manual-found-badge">
-                          <i className="bi bi-keyboard me-1"></i>Found via Manual ID
-                        </div>
-                      )}
+                      <div className="text-center mb-3">
+                        <Badge bg="success" className="px-3 py-2 fs-6">
+                          Face Detected
+                        </Badge>
+                      </div>
+
                       <div className="d-flex align-items-start mb-4 pb-3 border-bottom">
                         <div className="user-avatar-circle me-3">
                           <i className="bi bi-person-fill"></i>
@@ -569,8 +841,16 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
                             <i className="bi bi-geo-alt-fill text-success me-2"></i>
                             <span className="text-success">{recognizedUser.department}</span>
                           </div>
-                          <Badge bg="success" className="px-3 py-2">{recognizedUser.role}</Badge>
+                          <Badge bg="info" className="px-3 py-1">{recognizedUser.role}</Badge>
                         </div>
+                      </div>
+
+                      {/* Confidence Indicator */}
+                      <div className="mb-3 text-center">
+                        <small className="text-muted">Match Confidence: </small>
+                        <strong className={recognitionConfidence > 70 ? 'text-success' : 'text-warning'}>
+                          {recognitionConfidence}%
+                        </strong>
                       </div>
 
                       {selectedEventDetails && (
@@ -580,36 +860,54 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
                         </div>
                       )}
 
-                      <Row className="g-3 mb-3">
-                        <Col sm={6}>
-                          <Button variant="success" className="w-100 py-3 fw-bold fs-5" onClick={handleCheckIn}>
-                            <i className="bi bi-box-arrow-in-right me-2"></i>Check In
-                          </Button>
-                        </Col>
-                        <Col sm={6}>
-                          <Button variant="danger" className="w-100 py-3 fw-bold fs-5" onClick={handleCheckOut}>
-                            <i className="bi bi-box-arrow-right me-2"></i>Check Out
-                          </Button>
-                        </Col>
-                      </Row>
+                      {/* Show Check In / Check Out buttons only after confirmation delay */}
+                      {showConfirmButtons ? (
+                        <>
+                          <p className="text-success text-center fw-bold mb-3">
+                            ✅ Confirmed. Please choose action:
+                          </p>
+                          <Row className="g-3 mb-3">
+                            <Col sm={6}>
+                              <Button 
+                                variant="success" 
+                                className="w-100 py-3 fw-bold fs-5" 
+                                onClick={handleCheckIn}
+                              >
+                                <i className="bi bi-box-arrow-in-right me-2"></i>Check In
+                              </Button>
+                            </Col>
+                            <Col sm={6}>
+                              <Button 
+                                variant="danger" 
+                                className="w-100 py-3 fw-bold fs-5" 
+                                onClick={handleCheckOut}
+                              >
+                                <i className="bi bi-box-arrow-right me-2"></i>Check Out
+                              </Button>
+                            </Col>
+                          </Row>
+                        </>
+                      ) : (
+                        <div className="text-center py-3">
+                          <div className="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                          <span className="text-muted">Verifying identity... Please wait 3 seconds</span>
+                        </div>
+                      )}
 
                       <div className="d-grid">
                         <Button
                           variant="outline-secondary"
                           size="lg"
                           onClick={() => {
-                            if (manualMode) {
-                              setRecognizedUser(null);
-                              setManualId('');
-                              setManualError('');
-                              setManualSearched(false);
-                            } else {
-                              handleScanDifferent();
-                            }
+                            // Cancel everything and scan again
+                            if (recognitionTimer) clearTimeout(recognitionTimer);
+                            setRecognizedUser(null);
+                            setShowConfirmButtons(false);
+                            setRecognitionConfidence(0);
                           }}
                         >
-                          <i className={`bi bi-${manualMode ? 'arrow-left' : 'arrow-repeat'} me-2`}></i>
-                          {manualMode ? 'Enter Different ID' : 'Scan Different Face'}
+                          <i className="bi bi-arrow-repeat me-2"></i>
+                          Scan Different Face
                         </Button>
                       </div>
                     </Card.Body>
