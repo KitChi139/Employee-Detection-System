@@ -341,66 +341,109 @@ function EmployeesPage() {
     });
   };
 
-  const openCamera = async (index) => {
-    setCameraSlot(index);
-    setReqs(defaultReqs);
-    setShowCamera(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      streamRef.current = stream;
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.onloadeddata = () => {
-            detectionLoopRef.current = requestAnimationFrame(runDetectionLoop);
-          };
-        }
-      }, 100);
-    } catch (err) {
-      alert('Camera access denied or not available.');
-      setShowCamera(false);
-    }
-  };
+const openCamera = async (index) => {
+  setCameraSlot(index);
+  setReqs(defaultReqs);
+  setShowCamera(true);
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 640 },     // Lower resolution = much less lag
+        height: { ideal: 480 },
+        facingMode: "user"
+      }
+    });
+
+    streamRef.current = stream;   // ← Important: save stream for cleanup
+
+    // Assign stream to video and start detection
+    setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadeddata = () => {
+          detectionLoopRef.current = requestAnimationFrame(runDetectionLoop);
+        };
+      }
+    }, 100);
+
+  } catch (err) {
+    console.error(err);
+    alert('Camera access denied or not available.');
+    setShowCamera(false);
+  }
+};
 
   const capturePhoto = async () => {
   if (!videoRef.current) return;
 
-  const canvas = document.createElement('canvas');
-  canvas.width = videoRef.current.videoWidth;
-  canvas.height = videoRef.current.videoHeight;
-  canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
-  const dataUrl = canvas.toDataURL('image/jpeg');
-
-  try {
-    const img = await faceapi.fetchImage(dataUrl);
-    const detection = await faceapi
-      .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 }))
-      .withFaceLandmarks()
-      .withFaceDescriptor();
-
-    if (!detection) {
-      alert("No face detected clearly. Please recapture.");
+  // Optional: warn if requirements not fully met
+  if (!allAutoReqsMet) {
+    const proceed = window.confirm("Some requirements are not met. Capture anyway?");
+    if (!proceed) {
       return;
     }
+  }
 
-    const embedding = Array.from(detection.descriptor);
+  try {
+    // 1. Capture frame instantly (this part should feel fast)
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
 
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.82);   // good quality + smaller size
+
+    // Show preview immediately so user sees instant feedback
     setImageSlots(prev => {
       const updated = [...prev];
       updated[cameraSlot] = { 
-        preview: dataUrl,      // for display
-        embedding: embedding,  // for saving
+        preview: dataUrl, 
+        embedding: null,     // will fill later
         file: null 
       };
       return updated;
     });
 
+    closeCamera();   // close modal right away for better UX
+
+    // 2. Do heavy face processing in background (after closing)
+    setTimeout(async () => {
+      try {
+        const img = await faceapi.fetchImage(dataUrl);
+
+        const detection = await faceapi
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({
+            scoreThreshold: 0.5,
+            inputSize: 416        // Smaller = significantly faster
+          }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (detection) {
+          const embedding = Array.from(detection.descriptor);
+
+          // Update the slot with embedding
+          setImageSlots(prev => {
+            const updated = [...prev];
+            const current = updated[cameraSlot];
+            if (current && current.preview === dataUrl) {
+              updated[cameraSlot] = { ...current, embedding };
+            }
+            return updated;
+          });
+        } else {
+          console.warn("No face detected in captured photo");
+        }
+      } catch (err) {
+        console.error("Failed to extract embedding:", err);
+      }
+    }, 50);
+
   } catch (err) {
     console.error(err);
-    alert("Failed to extract face embedding.");
+    alert("Failed to capture photo.");
   }
-
-  closeCamera();
 };
 
   const closeCamera = () => {
