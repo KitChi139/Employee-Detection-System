@@ -211,8 +211,12 @@ export default function LoginPage() {
       `}</style>
 
       {/* Page background */}
-      <div style={{ position:"absolute", inset:0, backgroundImage:"url('/BG.png')", backgroundSize:"cover", backgroundPosition:"center" }}/>
-      <div style={{ position:"absolute", inset:0, background:"linear-gradient(135deg, rgba(0,30,15,0.50) 0%, rgba(0,20,10,0.35) 100%)" }}/>
+      <div style={{
+        position:"absolute",
+        inset:0,
+        background:"linear-gradient(160deg, rgba(6,35,22,0.72) 0%, rgba(21,92,54,0.55) 100%), url('https://images.unsplash.com/photo-1568992687947-868a62a9f521?w=1920') center/cover fixed no-repeat",
+        backgroundColor:"#0d3a22"
+      }}/>
       <div style={{ position:"absolute", inset:0, background:"repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px)" }}/>
 
       {/* Top bar */}

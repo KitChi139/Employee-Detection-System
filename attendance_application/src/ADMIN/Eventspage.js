@@ -24,6 +24,10 @@ function EventsPage({ onNavigate }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
+  // ── Archive confirmation modal ──
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+
   const [loadError, setLoadError] = useState('');
   const [createError, setCreateError] = useState('');
   const [createSuccess, setCreateSuccess] = useState('');
@@ -86,7 +90,7 @@ function EventsPage({ onNavigate }) {
   };
 
   // =========================================
-  // CREATE EVENT
+  // CREATE / EDIT EVENT
   // =========================================
 
   const openCreateModal = () => {
@@ -152,11 +156,18 @@ function EventsPage({ onNavigate }) {
     }
   };
 
-  const handleDeleteEvent = async (ev, e) => {
+  // ── Archive: open modal instead of window.confirm ──
+  const askArchive = (ev, e) => {
     e.stopPropagation();
-    if (!window.confirm('Archive this event?')) return;
+    setArchiveTarget(ev);
+    setShowArchiveConfirm(true);
+  };
+
+  const confirmArchive = async () => {
+    if (!archiveTarget) return;
+    setShowArchiveConfirm(false);
     try {
-      const res = await deleteEvent(ev.event_ID);
+      const res = await deleteEvent(archiveTarget.event_ID);
       await loadEvents();
       setCreateSuccess(res?.message || 'Event archived successfully');
       setTimeout(() => setCreateSuccess(''), 4000);
@@ -164,7 +175,14 @@ function EventsPage({ onNavigate }) {
       const msg = err?.message || 'Failed to archive event.';
       setCreateError(msg);
       setTimeout(() => setCreateError(''), 5000);
+    } finally {
+      setArchiveTarget(null);
     }
+  };
+
+  const cancelArchive = () => {
+    setShowArchiveConfirm(false);
+    setArchiveTarget(null);
   };
 
   // =========================================
@@ -172,7 +190,6 @@ function EventsPage({ onNavigate }) {
   // =========================================
 
   const filteredEvents = events.filter(event => {
-
     const q = searchTerm.toLowerCase();
 
     const matchSearch =
@@ -286,18 +303,15 @@ function EventsPage({ onNavigate }) {
                   <div className="flex-grow-1">
 
                     <div className="d-flex align-items-center mb-2">
-
                       <Badge
                         bg={getTypeColor(event.eventtype_name)}
                         className="me-2"
                       >
                         {event.eventtype_name}
                       </Badge>
-
                       <h6 className="event-name mb-0 me-2">
                         {event.event_name}
                       </h6>
-
                     </div>
 
                     <p className="event-description mb-2">
@@ -305,55 +319,38 @@ function EventsPage({ onNavigate }) {
                     </p>
 
                     <div className="event-meta">
-                      <span className="meta-item">
-                        {event.event_date}
-                      </span>
-                      <span className="meta-item">
-                        {event.event_time}
-                      </span>
-                      <span className="meta-item">
-                        {event.location_name}
-                      </span>
+                      <span className="meta-item">{event.event_date}</span>
+                      <span className="meta-item">{event.event_time}</span>
+                      <span className="meta-item">{event.location_name}</span>
                     </div>
 
                   </div>
 
                   <div className="event-attendance">
-
-  {/* compute values with safe fallbacks */}
-  {(() => {
-    const attended = Number(event.attended_count || 0);
-    // use explicit not_attended_count if available; otherwise fallback to 0 or derive from total_expected if your data has it
-    const notAttended =
-      event.not_attended_count !== undefined
-        ? Number(event.not_attended_count)
-        : (event.total_expected !== undefined ? Math.max(0, Number(event.total_expected) - attended) : 0);
-
-    const tooltipText = `Attended - ${attended} / Not Attended - ${notAttended}`;
-
-    return (
-      <>
-        <div className="attendance-number">
-          {attended}
-        </div>
-
-        {/* keep label */}
-        <div className="attendance-label">Attended</div>
-
-        {/* InfoTooltip — the container itself is the trigger (no icon) */}
-        <InfoTooltip text={tooltipText} />
-      </>
-    );
-  })()}
-
+                    {(() => {
+                      const attended = Number(event.attended_count || 0);
+                      const notAttended =
+                        event.not_attended_count !== undefined
+                          ? Number(event.not_attended_count)
+                          : (event.total_expected !== undefined
+                              ? Math.max(0, Number(event.total_expected) - attended)
+                              : 0);
+                      const tooltipText = `Attended - ${attended} / Not Attended - ${notAttended}`;
+                      return (
+                        <>
+                          <div className="attendance-number">{attended}</div>
+                          <div className="attendance-label">Attended</div>
+                          <InfoTooltip text={tooltipText} />
+                        </>
+                      );
+                    })()}
                   </div>
 
-                  {/* Actions */}
-                  <div className="ms-3 d-flex flex-column align-items-end">
+                  {/* Actions — distinct colours so they can't be confused */}
+                  <div className="action-btn-group ms-3">
                     <Button
-                      variant="outline-primary"
+                      className="btn-event-edit"
                       size="sm"
-                      className="mb-2"
                       onClick={(e) => {
                         e.stopPropagation();
                         openEditModal(event);
@@ -362,9 +359,9 @@ function EventsPage({ onNavigate }) {
                       Edit
                     </Button>
                     <Button
-                      variant="outline-danger"
+                      className="btn-event-archive"
                       size="sm"
-                      onClick={(e) => handleDeleteEvent(event, e)}
+                      onClick={(e) => askArchive(event, e)}
                     >
                       Archive
                     </Button>
@@ -384,8 +381,7 @@ function EventsPage({ onNavigate }) {
         </Card.Body>
       </Card>
 
-      {/* ================= MODAL ================= */}
-
+      {/* ================= CREATE / EDIT MODAL ================= */}
       <Modal
         show={showCreateModal}
         onHide={closeCreateModal}
@@ -393,7 +389,7 @@ function EventsPage({ onNavigate }) {
         size="lg"
         backdrop="static"
       >
-        <Modal.Header closeButton>
+        <Modal.Header closeButton className="modal-header">
           <Modal.Title>{isEditing ? 'Edit Event' : 'Create New Event'}</Modal.Title>
         </Modal.Header>
 
@@ -424,10 +420,7 @@ function EventsPage({ onNavigate }) {
                 >
                   <option value="">Select</option>
                   {eventTypes.map(type => (
-                    <option
-                      key={type.eventtype_ID}
-                      value={type.eventtype_ID}
-                    >
+                    <option key={type.eventtype_ID} value={type.eventtype_ID}>
                       {type.eventtype_name}
                     </option>
                   ))}
@@ -445,10 +438,7 @@ function EventsPage({ onNavigate }) {
                 >
                   <option value="">Select</option>
                   {locations.map(loc => (
-                    <option
-                      key={loc.location_ID}
-                      value={loc.location_ID}
-                    >
+                    <option key={loc.location_ID} value={loc.location_ID}>
                       {loc.location_name}
                     </option>
                   ))}
@@ -493,22 +483,45 @@ function EventsPage({ onNavigate }) {
 
             </Row>
 
-            <div className="mt-4 text-end">
-              <Button
-                variant="secondary"
-                onClick={closeCreateModal}
-                className="me-2"
-              >
+            <div className="mt-4 text-end d-flex justify-content-end gap-2">
+              <Button className="btn-modal-cancel" onClick={closeCreateModal}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={creating}>
-                {creating ? 'Creating...' : 'Create Event'}
+              <Button className="btn-modal-save" type="submit" disabled={creating}>
+                {creating ? 'Saving...' : isEditing ? 'Update Event' : 'Create Event'}
               </Button>
             </div>
 
           </Form>
         </Modal.Body>
+      </Modal>
 
+      {/* ================= ARCHIVE CONFIRMATION MODAL ================= */}
+      <Modal
+        show={showArchiveConfirm}
+        onHide={cancelArchive}
+        centered
+        size="sm"
+        backdrop="static"
+      >
+        <Modal.Header closeButton className="modal-header">
+          <Modal.Title style={{ fontSize: 16 }}>Archive Event</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p style={{ margin: 0, fontSize: 14, color: '#374151' }}>
+            Are you sure you want to archive{' '}
+            <strong>{archiveTarget?.event_name}</strong>?
+            It will be moved to the Events Archive.
+          </p>
+        </Modal.Body>
+        <Modal.Footer style={{ border: '1px solid #f0f0f0', padding: '14px 24px', background: '#fafafa', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <Button className="btn-modal-cancel" onClick={cancelArchive}>
+            Cancel
+          </Button>
+          <Button className="btn-event-archive" onClick={confirmArchive}>
+            Yes, Archive
+          </Button>
+        </Modal.Footer>
       </Modal>
 
     </div>

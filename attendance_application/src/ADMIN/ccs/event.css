@@ -577,3 +577,61 @@
   }
   .stat-glass-label, .stat-glass-value, .stat-glass-sublabel { color: #000 !important; }
 }
+/* ===================================================
+   ACTION BUTTON GROUP — always inline, never stacked
+   =================================================== */
+
+.action-btn-group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Edit — solid blue, safe/neutral action ── */
+.btn-event-edit {
+  background: #1a6a9a !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 6px 14px !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  letter-spacing: 0.2px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(26, 106, 154, 0.30);
+}
+
+.btn-event-edit:hover,
+.btn-event-edit:focus {
+  background: #155c88 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(26, 106, 154, 0.40);
+}
+
+/* ── Archive — solid warm-red, destructive action ── */
+.btn-event-archive {
+  background: #c53030 !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 6px 14px !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  letter-spacing: 0.2px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(197, 48, 48, 0.30);
+}
+
+.btn-event-archive:hover,
+.btn-event-archive:focus {
+  background: #9b2c2c !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(197, 48, 48, 0.40);
+}

@@ -1,4 +1,3 @@
-
 .admin-page {
   padding: 30px;
   max-width: 1600px;
@@ -767,4 +766,92 @@
 }
 .modal-backdrop {
   z-index: 999998 !important;
+}
+/* ===================================================
+   ACTION BUTTON GROUP — always inline, never stacked
+   =================================================== */
+
+.action-btn-group {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+/* ── Edit — solid blue, safe/neutral action ── */
+.btn-emp-edit {
+  background: #1a6a9a !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 5px 12px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  letter-spacing: 0.2px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(26, 106, 154, 0.30);
+}
+
+.btn-emp-edit:hover,
+.btn-emp-edit:focus {
+  background: #155c88 !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(26, 106, 154, 0.40);
+}
+
+/* ── Archive — solid warm-red, destructive action ── */
+.btn-emp-archive {
+  background: #c53030 !important;
+  border: none !important;
+  border-radius: 8px !important;
+  padding: 5px 12px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  letter-spacing: 0.2px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(197, 48, 48, 0.30);
+}
+
+.btn-emp-archive:hover,
+.btn-emp-archive:focus {
+  background: #9b2c2c !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(197, 48, 48, 0.40);
+}
+
+/* Modal cancel — neutral grey */
+.btn-modal-cancel {
+  background: #efefef !important;
+  border: none !important;
+  color: #555 !important;
+  border-radius: 10px !important;
+  padding: 10px 22px !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+}
+
+.btn-modal-cancel:hover { background: #e0e0e0 !important; color: #333 !important; }
+
+/* Modal save — green gradient */
+.btn-modal-save {
+  background: linear-gradient(135deg, #1a5f2e 0%, #28a745 100%) !important;
+  border: none !important;
+  color: white !important;
+  border-radius: 10px !important;
+  padding: 10px 26px !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.28);
+}
+
+.btn-modal-save:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(40, 167, 69, 0.38);
+  color: white !important;
 }
