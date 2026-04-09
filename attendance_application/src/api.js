@@ -14,7 +14,9 @@ export const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 10000,
+  timeout: 120000,           // 2 minutes
+  maxBodyLength: Infinity,
+  maxContentLength: Infinity,
 });
 
 // ====================================
@@ -130,17 +132,18 @@ export const getEmployeePhotos = async (employeeId) => {
   }
 };
 
-export const saveEmployeeEmbeddings = async (employeeId, embeddings) => {
+export const saveEmployeePhotos = async (employeeId, photoItems) => {
   try {
     const { data } = await api.post("/employee_photos.php", {
       employee_id: employeeId,
-      photos: embeddings   // array of number arrays
+      photos: photoItems   // Now sends array of objects: {embedding, photo_png}
     });
     return data;
   } catch (error) {
     handleError(error);
   }
 };
+
 
 // ====================================
 // ATTENDANCE ENDPOINTS

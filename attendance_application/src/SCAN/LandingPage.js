@@ -46,6 +46,9 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   const [showConfirmButtons, setShowConfirmButtons] = useState(false);
   const [currentDetectedName, setCurrentDetectedName] = useState('');
   const [currentConfidence, setCurrentConfidence] = useState(0);
+  const [lastDetectionTime, setLastDetectionTime] = useState(0);
+  const DETECTION_INTERVAL = 250; // 250ms = ~4 detections per second (good balance)
+  const [isScanning, setIsScanning] = useState(true);   // Controls whether we run recognition
 
   const handleManualIdKey = (digit) => {
     setManualError('');
@@ -251,29 +254,35 @@ useEffect(() => {
 
   // Live Face Detection + Overlay (runs continuously while camera is active)
 useEffect(() => {
-  if (!cameraActive || !modelsLoaded || !employees.length) {
+  if (!cameraActive || !modelsLoaded || !employees.length || !isScanning) {
     setCurrentDetectedName('');
     setCurrentConfidence(0);
     return;
   }
 
- const runRecognition = async () => {
-  const video = videoRef.current;
-  if (!video || video.readyState < 2) return;
+  const runRecognition = async () => {
+      const now = Date.now();
+    if (now - lastDetectionTime < DETECTION_INTERVAL) return;
+    setLastDetectionTime(now);
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return;
 
-  try {
-    const detection = await faceapi
-      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.3 }))
-      .withFaceLandmarks()
-      .withFaceDescriptor();
+    try {
+      const detection = await faceapi
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ 
+          inputSize: 224,           // ← Optimized
+          scoreThreshold: 0.3 
+        }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
 
-    if (!detection) {
-      setCurrentDetectedName('');
-      setCurrentConfidence(0);
-      return;
-    }
+      if (!detection) {
+        setCurrentDetectedName('');
+        setCurrentConfidence(0);
+        return;
+      }
 
-    const liveEmbedding = detection.descriptor;
+      const liveEmbedding = detection.descriptor;
 
     let bestMatch = null;
     let bestScore = -Infinity;
@@ -334,15 +343,15 @@ useEffect(() => {
     const MIN_SIMILARITY = 0.40;   // Very lenient for testing
 
     if (bestMatch && bestScore > MIN_SIMILARITY) {
-      const detectedName = `${bestMatch.employee_firstName} ${bestMatch.employee_LastName}`;
-      const confidencePercent = Math.round(bestScore * 100);
+        const detectedName = `${bestMatch.employee_firstName} ${bestMatch.employee_LastName}`;
+        const confidencePercent = Math.round(bestScore * 100);
 
-      console.log(`🎉 GOOD MATCH FOUND! ${detectedName} (${confidencePercent}%)`);
+        console.log(`🎉 GOOD MATCH FOUND! ${detectedName} (${confidencePercent}%)`);
+        
+        setCurrentDetectedName(detectedName);
+        setCurrentConfidence(confidencePercent);
 
-      setCurrentDetectedName(detectedName);
-      setCurrentConfidence(confidencePercent);
-
-      const newUser = {
+        const newUser = {
         name: detectedName,
         id: bestMatch.employee_code,
         department: bestMatch.department_name,
@@ -354,15 +363,20 @@ useEffect(() => {
       };
 
       if (!recognizedUser || recognizedUser.employeeId !== newUser.employeeId) {
-        setRecognizedUser(newUser);
-        setRecognitionConfidence(confidencePercent);
-        setShowConfirmButtons(false);
+          setRecognizedUser(newUser);
+          setRecognitionConfidence(confidencePercent);
+          setShowConfirmButtons(false);
 
-        if (recognitionTimer) clearTimeout(recognitionTimer);
+          // Auto-confirm after 3 seconds and PAUSE scanning
+          if (recognitionTimer) clearTimeout(recognitionTimer);
 
-        const timer = setTimeout(() => setShowConfirmButtons(true), 3000);
-        setRecognitionTimer(timer);
-      }
+          const timer = setTimeout(() => {
+            setShowConfirmButtons(true);
+            setIsScanning(false);        // ← THIS PAUSES THE HEAVY LOOP
+          }, 3000);
+
+          setRecognitionTimer(timer);
+        }
     } else {
       setCurrentDetectedName('');
       setCurrentConfidence(0);
@@ -372,19 +386,14 @@ useEffect(() => {
   }
 };
 
-  const loop = () => {
-    runRecognition();
-    detectionLoopRef.current = requestAnimationFrame(loop);
-  };
-
-  loop();
+// Use setInterval instead of requestAnimationFrame for better control + less lag
+  const interval = setInterval(runRecognition, 300);   // Run every 300ms (much better than 60fps)
 
   return () => {
-    if (detectionLoopRef.current) {
-      cancelAnimationFrame(detectionLoopRef.current);
-    }
+    clearInterval(interval);
   };
-}, [cameraActive, modelsLoaded, employees, recognizedUser]);   // ← removed "recognizedUser" from stopping logic
+}, [cameraActive, modelsLoaded, employees, isScanning, recognizedUser]);  
+// Note: We keep recognizedUser if you want, but isScanning is now the main control
 
 const startCamera = async () => {
   if (!selectedEvent) {
@@ -396,8 +405,9 @@ const startCamera = async () => {
     const mediaStream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: 'user',
-        width: { ideal: 640 },
-        height: { ideal: 480 }
+        width: { ideal: 480 },   // Lower from 640
+      height: { ideal: 360 },  // Keep 4:3 or 16:9 ratio
+      frameRate: { ideal: 15 }
       }
     });
 
@@ -435,11 +445,15 @@ const stopCamera = () => {
     setStream(null);
   }
   const video = videoRef.current;
-  if (video) {
-    video.srcObject = null;
-  }
+  if (video) video.srcObject = null;
+
   setCameraActive(false);
   setRecognizedUser(null);
+  setShowConfirmButtons(false);
+  setRecognitionConfidence(0);
+  setCurrentDetectedName('');
+  setCurrentConfidence(0);
+  setIsScanning(true);        // Reset for next time
 };
 
 
@@ -751,19 +765,37 @@ const stopCamera = () => {
       )}
     </div>
 
-    {!recognizedUser && (
-      <div className="d-grid mt-3">
-        <Button
-          variant={cameraActive ? 'danger' : 'success'}
-          size="lg"
-          onClick={cameraActive ? stopCamera : startCamera}
-          disabled={!selectedEvent}
-        >
-          <i className={`bi bi-${cameraActive ? 'camera-video-off' : 'camera-video'} me-2`}></i>
-          {cameraActive ? 'Stop Camera' : 'Scan Face'}
-        </Button>
-      </div>
+    {/* Camera Control Buttons - Always visible when camera can be used */}
+{!manualMode && (
+  <div className="d-grid mt-3 gap-2">
+    {/* Main Scan / Stop Camera Button */}
+    <Button
+      variant={cameraActive ? 'danger' : 'success'}
+      size="lg"
+      onClick={cameraActive ? stopCamera : startCamera}
+      disabled={!selectedEvent}
+    >
+      <i className={`bi bi-${cameraActive ? 'camera-video-off' : 'camera-video'} me-2`}></i>
+      {cameraActive ? 'Stop Camera' : 'Scan Face'}
+    </Button>
+
+    {/* Optional: "Scan Different Face" button when someone is already recognized */}
+    {cameraActive && recognizedUser && (
+      <Button
+        variant="outline-secondary"
+        size="lg"
+        onClick={() => {
+          setRecognizedUser(null);
+          setShowConfirmButtons(false);
+          setRecognitionConfidence(0);
+        }}
+      >
+        <i className="bi bi-arrow-repeat me-2"></i>
+        Scan Different Face
+      </Button>
     )}
+  </div>
+)}
   </>
 )}
                 {/* ── MANUAL ID MODE  */}
@@ -906,12 +938,15 @@ const stopCamera = () => {
                           variant="outline-secondary"
                           size="lg"
                           onClick={() => {
-                            // Cancel everything and scan again
-                            if (recognitionTimer) clearTimeout(recognitionTimer);
-                            setRecognizedUser(null);
-                            setShowConfirmButtons(false);
-                            setRecognitionConfidence(0);
-                          }}
+                              if (recognitionTimer) clearTimeout(recognitionTimer);
+                              
+                              setRecognizedUser(null);
+                              setShowConfirmButtons(false);
+                              setRecognitionConfidence(0);
+                              setCurrentDetectedName('');
+                              setCurrentConfidence(0);
+                              setIsScanning(true);        // ← Resume scanning
+                            }}
                         >
                           <i className="bi bi-arrow-repeat me-2"></i>
                           Scan Different Face
