@@ -391,67 +391,47 @@ input[type="file"].hidden-file-input {
  
 .list-empty p { font-size: 14px; margin: 0; }
  
-/* ── Buttons ── */
-.btn-settings-primary {
-  background: linear-gradient(135deg, #1a5f2e 0%, #28a745 100%);
-  border: none;
-  border-radius: 10px;
-  padding: 10px 18px;
-  font-size: 13.5px;
-  font-weight: 700;
-  color: white;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  transition: all 0.25s ease;
-  box-shadow: 0 4px 12px rgba(40,167,69,0.28);
-  white-space: nowrap;
-}
- 
-.btn-settings-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(40,167,69,0.38);
-}
- 
+/* ── Buttons — green gradient style ── */
+.btn-settings-primary,
 .btn-settings-edit {
-  background: #f0f9ff;
-  border: 1px solid #bae6fd;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #0369a1;
-  cursor: pointer;
-  display: inline-flex;
+  background: linear-gradient(135deg, #1a5f2e 0%, #28a745 100%) !important;
+  border: none !important;
+  border-radius: 12px !important;
+  padding: 10px 20px !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  color: white !important;
+  box-shadow: 0 4px 14px rgba(40, 167, 69, 0.35);
+  transition: all 0.3s ease;
+  display: inline-flex !important;
   align-items: center;
-  gap: 5px;
-  transition: all 0.2s ease;
+  gap: 8px;
 }
- 
-.btn-settings-edit:hover {
-  background: #e0f2fe;
-  border-color: #7dd3fc;
-}
- 
+
 .btn-settings-remove {
-  background: #fff5f5;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #dc2626;
-  cursor: pointer;
-  display: inline-flex;
+  background: linear-gradient(135deg, #e53e3e 0%, #9b2c2c 100%) !important;
+  border: none !important;
+  border-radius: 12px !important;
+  padding: 10px 20px !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  color: white !important;
+  box-shadow: 0 4px 14px rgba(197, 48, 48, 0.35);
+  transition: all 0.3s ease;
+  display: inline-flex !important;
   align-items: center;
-  gap: 5px;
-  transition: all 0.2s ease;
+  gap: 8px;
 }
- 
-.btn-settings-remove:hover {
-  background: #fee2e2;
-  border-color: #fca5a5;
+
+.btn-settings-primary:hover,
+.btn-settings-primary:focus,
+.btn-settings-edit:hover,
+.btn-settings-edit:focus,
+.btn-settings-remove:hover,
+.btn-settings-remove:focus {
+  color: white !important;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(40, 167, 69, 0.45);
 }
  
 /* ── Responsive ── */
