@@ -17,6 +17,7 @@ try {
 
     $query = "
         SELECT 
+            e.employee_ID,
             e.employee_code,
             CONCAT(e.employee_firstName, ' ', e.employee_LastName) AS fullName,
             d.department_name,
@@ -25,6 +26,9 @@ try {
             a.status
         FROM employees e
         JOIN department d ON e.department_ID = d.department_ID
+        JOIN event_target_employees ete
+            ON ete.employee_ID = e.employee_ID
+            AND ete.event_ID = ?
         LEFT JOIN attendance a 
             ON e.employee_ID = a.employee_ID
             AND a.event_ID = ?
@@ -33,7 +37,7 @@ try {
     ";
 
     $stmt = $conn->prepare($query);
-    $stmt->execute([$event_id]);
+    $stmt->execute([$event_id, $event_id]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $response = [];
@@ -47,6 +51,7 @@ try {
         }
         $response[] = [
             "employee_code"   => $row["employee_code"],
+            "employee_ID"     => $row["employee_ID"],
             "fullName"        => $row["fullName"],
             "department_name" => $row["department_name"],
             "checkIn"         => $row["time_in"],

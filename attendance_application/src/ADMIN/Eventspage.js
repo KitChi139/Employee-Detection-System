@@ -24,7 +24,6 @@ function EventsPage({ onNavigate }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // ── Archive confirmation modal ──
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState(null);
 
@@ -43,9 +42,7 @@ function EventsPage({ onNavigate }) {
     description: ''
   });
 
-  // =========================================
-  // LOAD DATA
-  // =========================================
+
 
   useEffect(() => {
     loadEvents();
@@ -90,9 +87,7 @@ function EventsPage({ onNavigate }) {
     }
   };
 
-  // =========================================
-  // CREATE / EDIT EVENT
-  // =========================================
+
 
   const openCreateModal = () => {
     setIsEditing(false);
@@ -113,10 +108,10 @@ function EventsPage({ onNavigate }) {
     setIsEditing(true);
     setEditingId(ev.event_ID);
 
-    // Clean up dates and times if they are DATETIME strings
+  
     const extractDate = (str) => {
       if (!str) return '';
-      return str.split(' ')[0]; // Extract YYYY-MM-DD
+      return str.split(' ')[0]; 
     };
 
     const extractTime = (str) => {
@@ -148,11 +143,10 @@ function EventsPage({ onNavigate }) {
     setCreateError('');
     setCreateSuccess('');
 
-    // --- Validation: Prevent past dates ---
+
     const selectedDate = new Date(`${newEvent.event_date}T${newEvent.event_time || '00:00'}`);
     const now = new Date();
-    
-    // We allow events for today, so we only block if the date is strictly before today
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const eventDay = new Date(newEvent.event_date);
@@ -188,7 +182,7 @@ function EventsPage({ onNavigate }) {
     }
   };
 
-  // ── Archive: open modal instead of window.confirm ──
+
   const askArchive = (ev, e) => {
     e.stopPropagation();
     setArchiveTarget(ev);
@@ -217,9 +211,7 @@ function EventsPage({ onNavigate }) {
     setArchiveTarget(null);
   };
 
-  // =========================================
-  // FILTER
-  // =========================================
+
 
   const filteredEvents = events.filter(event => {
     const q = searchTerm.toLowerCase();
@@ -250,9 +242,6 @@ function EventsPage({ onNavigate }) {
     onNavigate('eventDetails', event);
   };
 
-  // =========================================
-  // UI
-  // =========================================
 
   return (
     <div className="admin-page">
@@ -341,6 +330,9 @@ function EventsPage({ onNavigate }) {
                       >
                         {event.eventtype_name}
                       </Badge>
+                      <Badge bg={Number(event.is_active) === 1 ? 'success' : 'secondary'} className="me-2">
+                        {Number(event.is_active) === 1 ? 'Activated' : 'Deactivated'}
+                      </Badge>
                       <h6 className="event-name mb-0 me-2">
                         {event.event_name}
                       </h6>
@@ -354,6 +346,7 @@ function EventsPage({ onNavigate }) {
                       <span className="meta-item">📅 {event.event_date}</span>
                       <span className="meta-item">🕐 {event.event_time} {event.time_end ? ` - ${event.time_end}` : ''}</span>
                       <span className="meta-item">📍 {event.location_name}</span>
+                      <span className="meta-item">👥 Target: {Number(event.selected_count || 0)}</span>
                     </div>
 
                   </div>

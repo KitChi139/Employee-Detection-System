@@ -8,6 +8,35 @@ require_once("../config/database.php");
 
 $method = $_SERVER['REQUEST_METHOD'];
 
+function columnExists($conn, $table, $column) {
+    try {
+        $stmt = $conn->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
+        $stmt->execute([$column]);
+        return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        return false;
+    }
+}
+
+function ensureEventSetupSchema($conn) {
+    try {
+        if (!columnExists($conn, "events", "is_active")) {
+            $conn->exec("ALTER TABLE events ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1");
+        }
+    } catch (Exception $e) { }
+
+    try {
+        $conn->exec("
+            CREATE TABLE IF NOT EXISTS event_target_employees (
+                target_ID INT AUTO_INCREMENT PRIMARY KEY,
+                event_ID INT NOT NULL,
+                employee_ID INT NOT NULL,
+                UNIQUE KEY uniq_event_employee (event_ID, employee_ID)
+            )
+        ");
+    } catch (Exception $e) { }
+}
+
 // Handle preflight
 if ($method === 'OPTIONS') {
     http_response_code(200);
@@ -19,6 +48,32 @@ if ($method === 'OPTIONS') {
 // GET ALL EVENTS
 // ======================================================
 if ($method === 'GET') {
+    ensureEventSetupSchema($conn);
+
+    if (isset($_GET["id"]) && isset($_GET["include_targets"])) {
+        $event_id = $_GET["id"];
+        try {
+            $eventStmt = $conn->prepare("SELECT event_ID, COALESCE(is_active, 1) AS is_active FROM events WHERE event_ID = ?");
+            $eventStmt->execute([$event_id]);
+            $eventRow = $eventStmt->fetch(PDO::FETCH_ASSOC);
+
+            $targetStmt = $conn->prepare("SELECT employee_ID FROM event_target_employees WHERE event_ID = ?");
+            $targetStmt->execute([$event_id]);
+            $targets = $targetStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            echo json_encode([
+                "event_ID" => $event_id,
+                "is_active" => (int)($eventRow["is_active"] ?? 0),
+                "employee_ids" => array_map("intval", $targets ?: [])
+            ]);
+        } catch (Exception $e) {
+            echo json_encode([
+                "error" => true,
+                "message" => $e->getMessage()
+            ]);
+        }
+        exit;
+    }
 
     // --- AUTO-ARCHIVE PAST EVENTS ---
     // Move events to archive if they are from a previous day.
@@ -59,12 +114,16 @@ if ($method === 'GET') {
         }
     }
 
-    $whereClause = "";
+    $where = [];
     if ($hasArchivedCol) {
-        // If archived=1 is passed, show ONLY archived. Otherwise show ONLY active.
         $showArchived = (isset($_GET['archived']) && $_GET['archived'] == '1') ? 1 : 0;
-        $whereClause = " WHERE ev.is_archived = $showArchived ";
+        $where[] = "ev.is_archived = $showArchived";
     }
+    if (isset($_GET["is_active"])) {
+        $activeValue = ($_GET["is_active"] == '1') ? 1 : 0;
+        $where[] = "COALESCE(ev.is_active, 1) = $activeValue";
+    }
+    $whereClause = !empty($where) ? (" WHERE " . implode(" AND ", $where)) : "";
 
     try {
         // 1) event_date/event_time/description + eventtype_name/location_name
@@ -80,7 +139,9 @@ if ($method === 'GET') {
                 ev.location_ID,
                 et.eventtype_name AS eventtype_name,
                 l.location_name   AS location_name,
-                COUNT(a.attendance_ID) AS attended_count
+                COALESCE(ev.is_active, 1) AS is_active,
+                COUNT(a.attendance_ID) AS attended_count,
+                (SELECT COUNT(*) FROM event_target_employees ete WHERE ete.event_ID = ev.event_ID) AS selected_count
             FROM events ev
             LEFT JOIN eventtype et ON ev.eventtype_ID = et.eventtype_ID
             LEFT JOIN location   l ON ev.location_ID   = l.location_ID
@@ -106,7 +167,9 @@ if ($method === 'GET') {
                     ev.location_ID,
                     et.eventtype     AS eventtype_name,
                     l.location       AS location_name,
-                    COUNT(a.attendance_ID) AS attended_count
+                    COALESCE(ev.is_active, 1) AS is_active,
+                    COUNT(a.attendance_ID) AS attended_count,
+                    (SELECT COUNT(*) FROM event_target_employees ete WHERE ete.event_ID = ev.event_ID) AS selected_count
                 FROM events ev
                 LEFT JOIN eventtype et ON ev.eventtype_ID = et.eventtype_ID
                 LEFT JOIN location   l ON ev.location_ID   = l.location_ID
@@ -133,7 +196,9 @@ if ($method === 'GET') {
                         ev.location_ID,
                         et.eventtype_name AS eventtype_name,
                         l.location_name   AS location_name,
-                        COUNT(a.attendance_ID) AS attended_count
+                        COALESCE(ev.is_active, 1) AS is_active,
+                        COUNT(a.attendance_ID) AS attended_count,
+                        (SELECT COUNT(*) FROM event_target_employees ete WHERE ete.event_ID = ev.event_ID) AS selected_count
                     FROM events ev
                     LEFT JOIN eventtype et ON ev.eventtype_ID = et.eventtype_ID
                     LEFT JOIN location   l ON ev.location_ID   = l.location_ID
@@ -160,7 +225,9 @@ if ($method === 'GET') {
                         ev.location_ID,
                         et.eventtype   AS eventtype_name,
                         l.location     AS location_name,
-                        COUNT(a.attendance_ID) AS attended_count
+                        COALESCE(ev.is_active, 1) AS is_active,
+                        COUNT(a.attendance_ID) AS attended_count,
+                        (SELECT COUNT(*) FROM event_target_employees ete WHERE ete.event_ID = ev.event_ID) AS selected_count
                     FROM events ev
                     LEFT JOIN eventtype et ON ev.eventtype_ID = et.eventtype_ID
                     LEFT JOIN location   l ON ev.location_ID   = l.location_ID
@@ -190,6 +257,7 @@ if ($method === 'GET') {
 // CREATE NEW EVENT
 // ======================================================
 if ($method === 'POST') {
+    ensureEventSetupSchema($conn);
 
     $data = json_decode(file_get_contents("php://input"), true);
 
@@ -239,9 +307,10 @@ if ($method === 'POST') {
                 event_date,
                 event_time,
                 time_end,
-                description
+                description,
+                is_active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
         ";
         $stmt = $conn->prepare($query1);
         $stmt->execute([
@@ -269,9 +338,10 @@ if ($method === 'POST') {
                     date,
                     time,
                     time_end,
-                    event_desc
+                    event_desc,
+                    is_active
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0)
             ";
             $stmt = $conn->prepare($query2);
             $stmt->execute([
@@ -302,6 +372,7 @@ if ($method === 'POST') {
 // UPDATE EVENT
 // ======================================================
 if ($method === 'PUT') {
+    ensureEventSetupSchema($conn);
 
     $event_id = $_GET["id"] ?? null;
     if (!$event_id) {
@@ -313,6 +384,70 @@ if ($method === 'PUT') {
     }
 
     $data = json_decode(file_get_contents("php://input"), true);
+
+    if (($data["action"] ?? "") === "setup_event") {
+        $employeeIds = $data["employee_ids"] ?? [];
+        if (!is_array($employeeIds)) {
+            echo json_encode(["error" => true, "message" => "employee_ids must be an array"]);
+            exit;
+        }
+
+        try {
+            $conn->beginTransaction();
+            $del = $conn->prepare("DELETE FROM event_target_employees WHERE event_ID = ?");
+            $del->execute([$event_id]);
+
+            if (!empty($employeeIds)) {
+                $ins = $conn->prepare("INSERT IGNORE INTO event_target_employees (event_ID, employee_ID) VALUES (?, ?)");
+                foreach ($employeeIds as $empId) {
+                    $ins->execute([$event_id, (int)$empId]);
+                }
+            }
+            $conn->commit();
+
+            echo json_encode([
+                "success" => true,
+                "message" => "Event setup saved successfully"
+            ]);
+        } catch (Exception $e) {
+            if ($conn->inTransaction()) $conn->rollBack();
+            echo json_encode(["error" => true, "message" => $e->getMessage()]);
+        }
+        exit;
+    }
+
+    if (($data["action"] ?? "") === "activate_event") {
+        try {
+            $countStmt = $conn->prepare("SELECT COUNT(*) FROM event_target_employees WHERE event_ID = ?");
+            $countStmt->execute([$event_id]);
+            $targetCount = (int)$countStmt->fetchColumn();
+            if ($targetCount <= 0) {
+                echo json_encode([
+                    "error" => true,
+                    "message" => "Please setup employees first before activating this event."
+                ]);
+                exit;
+            }
+
+            $stmt = $conn->prepare("UPDATE events SET is_active = 1 WHERE event_ID = ?");
+            $stmt->execute([$event_id]);
+            echo json_encode(["success" => true, "message" => "Event activated successfully"]);
+        } catch (Exception $e) {
+            echo json_encode(["error" => true, "message" => $e->getMessage()]);
+        }
+        exit;
+    }
+
+    if (($data["action"] ?? "") === "deactivate_event") {
+        try {
+            $stmt = $conn->prepare("UPDATE events SET is_active = 0 WHERE event_ID = ?");
+            $stmt->execute([$event_id]);
+            echo json_encode(["success" => true, "message" => "Event deactivated successfully"]);
+        } catch (Exception $e) {
+            echo json_encode(["error" => true, "message" => $e->getMessage()]);
+        }
+        exit;
+    }
 
     // --- RESTORE ACTION ---
     if (isset($data["restore"]) && $data["restore"] === true) {

@@ -160,7 +160,7 @@ useEffect(() => {
       setDataError('');
 
       const [eventsData, employeesData] = await Promise.all([
-        getEvents({ archived: 0 }),
+        getEvents({ archived: 0, is_active: 1 }),
         getEmployees(),
       ]);
 

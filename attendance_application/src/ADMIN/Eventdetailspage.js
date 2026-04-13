@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Button } from 'react-bootstrap';
-import { getEventAttendance } from '../api';
+import { Row, Col, Card, Button, Modal, Form, Badge } from 'react-bootstrap';
+import { getEventAttendance, getEmployees, getDepartments, getEventSetup, setupEventEmployees, activateEvent, deactivateEvent } from '../api';
 import './ccs/event.css';
 
 const PLP_LOGO_KEY   = 'plp_logo';
@@ -47,6 +47,14 @@ function EventDetailsPage({ onNavigate, eventData }) {
   const [searchTerm, setSearchTerm]     = useState('');
   const [selectedDept, setSelectedDept] = useState('All Departments');
   const [exporting, setExporting] = useState(false);
+  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [allDepartments, setAllDepartments] = useState([]);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState(new Set());
+  const [setupSearch, setSetupSearch] = useState('');
+  const [savingSetup, setSavingSetup] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [eventActive, setEventActive] = useState((eventData?.is_active ?? 1) === 1);
 
   // ── Logos read from localStorage (managed in Settings) ───────────────────
   const plpLogo         = localStorage.getItem(PLP_LOGO_KEY) || '';
@@ -69,9 +77,104 @@ function EventDetailsPage({ onNavigate, eventData }) {
     if (event_ID) loadAttendance();
   }, [event_ID]);
 
+  useEffect(() => {
+    if (event_ID) loadSetupData();
+  }, [event_ID]);
+
+  // Safety cleanup: if a modal backdrop is left behind, the page feels frozen.
+  useEffect(() => {
+    if (showSetupModal) return;
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('overflow');
+    document.body.style.removeProperty('padding-right');
+    const staleBackdrops = document.querySelectorAll('.modal-backdrop');
+    staleBackdrops.forEach((el) => el.remove());
+  }, [showSetupModal]);
+
   const loadAttendance = async () => {
     const data = await getEventAttendance(event_ID);
     setRecords(data);
+  };
+
+  const loadSetupData = async () => {
+    try {
+      const [employeesData, departmentsData, setupData] = await Promise.all([
+        getEmployees(),
+        getDepartments(),
+        getEventSetup(event_ID),
+      ]);
+
+      const empArr = Array.isArray(employeesData) ? employeesData : (employeesData?.data ?? []);
+      const deptArr = Array.isArray(departmentsData) ? departmentsData : (departmentsData?.data ?? []);
+      const activeEmployees = empArr.filter(e => e.is_archived !== 1);
+      const ids = Array.isArray(setupData?.employee_ids) ? setupData.employee_ids : [];
+
+      setAllEmployees(activeEmployees);
+      setAllDepartments(deptArr);
+      setSelectedEmployeeIds(new Set(ids.map(Number)));
+      setEventActive((setupData?.is_active ?? eventData?.is_active ?? 1) === 1);
+    } catch (e) {
+      console.error('Failed to load event setup data', e);
+    }
+  };
+
+  const handleDepartmentToggle = (departmentId, checked) => {
+    const next = new Set(selectedEmployeeIds);
+    allEmployees
+      .filter(emp => Number(emp.department_ID) === Number(departmentId))
+      .forEach(emp => {
+        if (checked) next.add(Number(emp.employee_ID));
+        else next.delete(Number(emp.employee_ID));
+      });
+    setSelectedEmployeeIds(next);
+  };
+
+  const handleEmployeeToggle = (employeeId, checked) => {
+    const next = new Set(selectedEmployeeIds);
+    if (checked) next.add(Number(employeeId));
+    else next.delete(Number(employeeId));
+    setSelectedEmployeeIds(next);
+  };
+
+  const saveSetup = async () => {
+    try {
+      setSavingSetup(true);
+      await setupEventEmployees(event_ID, Array.from(selectedEmployeeIds));
+      setShowSetupModal(false);
+      await loadAttendance();
+    } catch (e) {
+      alert(e?.message || 'Failed to save event setup.');
+    } finally {
+      setSavingSetup(false);
+    }
+  };
+
+  const handleActivate = async () => {
+    try {
+      setUpdatingStatus(true);
+      setShowSetupModal(false);
+      await activateEvent(event_ID);
+      setEventActive(true);
+      await loadSetupData();
+    } catch (e) {
+      alert(e?.message || 'Failed to activate event.');
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  const handleDeactivate = async () => {
+    try {
+      setUpdatingStatus(true);
+      setShowSetupModal(false);
+      await deactivateEvent(event_ID);
+      setEventActive(false);
+      await loadSetupData();
+    } catch (e) {
+      alert(e?.message || 'Failed to deactivate event.');
+    } finally {
+      setUpdatingStatus(false);
+    }
   };
 
   const totalAttended = records.filter(r => r.attended).length;
@@ -90,6 +193,13 @@ function EventDetailsPage({ onNavigate, eventData }) {
     const matchSearch = r.fullName.toLowerCase().includes(q) || r.employee_code.toString().includes(q);
     const matchDept   = selectedDept === 'All Departments' || r.department_name === selectedDept;
     return matchSearch && matchDept;
+  });
+
+  const setupFilteredEmployees = allEmployees.filter(emp => {
+    const q = setupSearch.toLowerCase();
+    const fullName = `${emp.employee_firstName || ''} ${emp.employee_LastName || ''}`.trim().toLowerCase();
+    const code = String(emp.employee_code || '').toLowerCase();
+    return fullName.includes(q) || code.includes(q);
   });
 
 
@@ -299,7 +409,12 @@ function EventDetailsPage({ onNavigate, eventData }) {
 
       <div className="page-header-section">
         <h1 className="page-title">Event Details ({eventName})</h1>
-        <Button onClick={() => onNavigate('events')}>Back to Events</Button>
+        <div className="d-flex align-items-center gap-2">
+          <Badge bg={eventActive ? 'success' : 'secondary'}>
+            {eventActive ? 'Activated' : 'Deactivated'}
+          </Badge>
+          <Button onClick={() => onNavigate('events')}>Back to Events</Button>
+        </div>
       </div>
 
       <Row className="g-3 mb-4">
@@ -407,8 +522,80 @@ function EventDetailsPage({ onNavigate, eventData }) {
             Showing {filtered.length} of {records.length} employees
           </div>
 
+          <div className="mt-3 d-flex justify-content-end gap-2">
+            <Button variant="outline-primary" onClick={() => setShowSetupModal(true)}>
+              Setup Event
+            </Button>
+            {eventActive ? (
+              <Button variant="outline-danger" onClick={handleDeactivate} disabled={updatingStatus}>
+                {updatingStatus ? 'Updating...' : 'Deactivate'}
+              </Button>
+            ) : (
+              <Button variant="success" onClick={handleActivate} disabled={updatingStatus}>
+                {updatingStatus ? 'Updating...' : 'Activate'}
+              </Button>
+            )}
+          </div>
+
         </Card.Body>
       </Card>
+
+      <Modal show={showSetupModal} onHide={() => setShowSetupModal(false)} size="lg" centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Setup Event Employees</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Form.Control
+            className="mb-3"
+            type="text"
+            placeholder="Search employee number or name..."
+            value={setupSearch}
+            onChange={(e) => setSetupSearch(e.target.value)}
+          />
+
+          <div className="mb-3">
+            <strong>Departments</strong>
+            <div className="d-flex flex-wrap gap-3 mt-2">
+              {allDepartments.map((dept) => {
+                const deptEmployees = allEmployees.filter(emp => Number(emp.department_ID) === Number(dept.department_ID));
+                const allSelected = deptEmployees.length > 0 && deptEmployees.every(emp => selectedEmployeeIds.has(Number(emp.employee_ID)));
+                return (
+                  <Form.Check
+                    key={dept.department_ID}
+                    type="checkbox"
+                    label={dept.department_name}
+                    checked={allSelected}
+                    onChange={(e) => handleDepartmentToggle(dept.department_ID, e.target.checked)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid #eee', borderRadius: 8, padding: 12 }}>
+            {setupFilteredEmployees.map((emp) => {
+              const employeeId = Number(emp.employee_ID);
+              return (
+                <Form.Check
+                  key={employeeId}
+                  type="checkbox"
+                  className="mb-2"
+                  label={`${emp.employee_code} - ${emp.employee_firstName} ${emp.employee_LastName}`}
+                  checked={selectedEmployeeIds.has(employeeId)}
+                  onChange={(e) => handleEmployeeToggle(employeeId, e.target.checked)}
+                />
+              );
+            })}
+            {setupFilteredEmployees.length === 0 && <div>No employees found.</div>}
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowSetupModal(false)}>Cancel</Button>
+          <Button variant="primary" onClick={saveSetup} disabled={savingSetup}>
+            {savingSetup ? 'Saving...' : 'Complete'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
 
     </div>
   );

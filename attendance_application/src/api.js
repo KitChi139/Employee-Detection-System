@@ -229,6 +229,45 @@ export const updateEvent = async (id, eventData) => {
   }
 };
 
+export const getEventSetup = async (id) => {
+  try {
+    const { data } = await api.get(`/events.php?id=${id}&include_targets=1`);
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const setupEventEmployees = async (id, employee_ids = []) => {
+  try {
+    const { data } = await api.put(`/events.php?id=${id}`, {
+      action: "setup_event",
+      employee_ids,
+    });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const activateEvent = async (id) => {
+  try {
+    const { data } = await api.put(`/events.php?id=${id}`, { action: "activate_event" });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const deactivateEvent = async (id) => {
+  try {
+    const { data } = await api.put(`/events.php?id=${id}`, { action: "deactivate_event" });
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
 export const getEventTypes = async () => {
   try {
     const { data } = await api.get("/eventtype.php");

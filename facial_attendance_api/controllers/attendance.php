@@ -79,6 +79,35 @@ if ($method === 'POST') {
     }
 
     try {
+        // Event must be active before accepting attendance.
+        $eventCheck = $conn->prepare("SELECT COALESCE(is_active, 1) AS is_active FROM events WHERE event_ID = ?");
+        $eventCheck->execute([$event_id]);
+        $eventRow = $eventCheck->fetch(PDO::FETCH_ASSOC);
+        if (!$eventRow || (int)$eventRow["is_active"] !== 1) {
+            echo json_encode([
+                "error" => true,
+                "message" => "This event is currently deactivated."
+            ]);
+            exit;
+        }
+
+        // If setup exists, only selected employees are allowed.
+        $targetCountStmt = $conn->prepare("SELECT COUNT(*) FROM event_target_employees WHERE event_ID = ?");
+        $targetCountStmt->execute([$event_id]);
+        $targetCount = (int)$targetCountStmt->fetchColumn();
+
+        if ($targetCount > 0) {
+            $allowedStmt = $conn->prepare("SELECT COUNT(*) FROM event_target_employees WHERE event_ID = ? AND employee_ID = ?");
+            $allowedStmt->execute([$event_id, $employee_id]);
+            $isAllowed = (int)$allowedStmt->fetchColumn() > 0;
+            if (!$isAllowed) {
+                echo json_encode([
+                    "error" => true,
+                    "message" => "Employee is not included in this event setup."
+                ]);
+                exit;
+            }
+        }
 
         $currentTime = date("Y-m-d H:i:s");
 
