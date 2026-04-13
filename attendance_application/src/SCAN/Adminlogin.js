@@ -44,7 +44,7 @@ const MailIcon = () => (
 );
 
 // ── Keys shared with Settingspage ──────────────────────────────────────────
-const LOGO_KEY = 'institution_logo';
+const LOGO_KEY = 'plp_logo';
 const NAME_KEY = 'institution_name';
 
 export default function LoginPage() {
