@@ -81,16 +81,6 @@ function EventDetailsPage({ onNavigate, eventData }) {
     if (event_ID) loadSetupData();
   }, [event_ID]);
 
-  // Safety cleanup: if a modal backdrop is left behind, the page feels frozen.
-  useEffect(() => {
-    if (showSetupModal) return;
-    document.body.classList.remove('modal-open');
-    document.body.style.removeProperty('overflow');
-    document.body.style.removeProperty('padding-right');
-    const staleBackdrops = document.querySelectorAll('.modal-backdrop');
-    staleBackdrops.forEach((el) => el.remove());
-  }, [showSetupModal]);
-
   const loadAttendance = async () => {
     const data = await getEventAttendance(event_ID);
     setRecords(data);
