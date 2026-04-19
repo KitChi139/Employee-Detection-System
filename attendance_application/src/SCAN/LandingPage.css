@@ -893,3 +893,29 @@ body {
   border-radius: 20px;
   margin-bottom: 14px;
 }
+
+/* ── Scan Mode Indicator ── */
+.scan-mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 24px;
+  border-radius: 50px;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 1px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.4s ease;
+  text-transform: uppercase;
+}
+
+.mode-checkin {
+  background: rgba(40, 167, 69, 0.1);
+  border: 2px solid #28a745;
+  color: #1a5f2e;
+}
+
+.mode-checkout {
+  background: rgba(220, 53, 69, 0.1);
+  border: 2px solid #dc3545;
+  color: #a71d2a;
+}

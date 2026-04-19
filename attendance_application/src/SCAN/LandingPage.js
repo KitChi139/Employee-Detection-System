@@ -730,6 +730,24 @@ const stopCamera = () => {
                   </button>
                 </div>
 
+                {/* ── SCAN MODE LABEL ── */}
+                {selectedEvent && (
+                  <div className="text-center mb-3">
+                    {(() => {
+                      const savedMode = localStorage.getItem(`attendanceMode_${selectedEvent}`);
+                      const effectiveMode = savedMode || selectedEventDetails?.scanMode || 'check_in';
+                      const isCheckOut = effectiveMode === 'checkout' || effectiveMode === 'check_out';
+                      
+                      return (
+                        <div className={`scan-mode-indicator ${isCheckOut ? 'mode-checkout' : 'mode-checkin'}`}>
+                          <i className={`bi bi-${isCheckOut ? 'box-arrow-right' : 'box-arrow-in-right'} me-2`}></i>
+                          {isCheckOut ? 'CHECK OUT MODE ACTIVE' : 'CHECK IN MODE ACTIVE'}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                                 {/* ── CAMERA MODE ── */}
 {!manualMode && (
   <>
