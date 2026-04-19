@@ -7,7 +7,7 @@ import EntryExitPage from './Entryexitpage';
 import Settingspage from './Settingspage';
 import Eventsarchives from './Eventsarchives';
 import EmployeesArchive from './Employeesarchives';
-import { getDashboardStats, getDepartmentAttendance } from '../api';
+import { getDashboardStats, getDepartmentAttendance, getEvents, getEventAttendance } from '../api';
 import './ccs/dashboard.css';
 import LiveClock from "../components/LiveClock";
 import InfoTooltip from "../components/InfoTooltip";
@@ -28,6 +28,44 @@ function AdminDashboard({ onLogout }) {
   const [sidebarLogo, setSidebarLogo] = useState(() => localStorage.getItem(LOGO_KEY) || null);
   const [sidebarName, setSidebarName] = useState(() => localStorage.getItem(NAME_KEY) || 'INSTITUTIONAL ADMIN SUPPORT');
 
+  const [selectedEventFilter, setSelectedEventFilter] = useState('all');
+  const [todayEvents, setTodayEvents] = useState([]);
+  const [allEvents, setAllEvents] = useState([]);
+  const [selectedEventData, setSelectedEventData] = useState(null);
+
+
+  const getEventId = (ev) => ev?.event_ID ?? ev?.id ?? ev?.eventId ?? null;
+
+  // Aggregate department data from raw attendance array (works for both single event and "All Events Today")
+  const aggregateDepartmentData = (attendanceArray) => {
+    if (!Array.isArray(attendanceArray) || attendanceArray.length === 0) {
+      return [];
+    }
+
+    const deptMap = {};
+
+    attendanceArray.forEach(emp => {
+      const deptName = emp.department_name || 'Unknown Department';
+      
+      if (!deptMap[deptName]) {
+        deptMap[deptName] = { 
+          department_name: deptName, 
+          present: 0, 
+          absent: 0 
+        };
+      }
+
+      if (emp.attended === true) {
+        // Late counts as "Present" in the department bars (matches the KPI Present + Late logic)
+        deptMap[deptName].present++;
+      } else {
+        deptMap[deptName].absent++;
+      }
+    });
+
+    return Object.values(deptMap);
+  };
+
   // Called by Settingspage when user clicks Save
   const handleBrandingChange = ({ logo, name }) => {
     if (logo) setSidebarLogo(logo);
@@ -40,6 +78,7 @@ function AdminDashboard({ onLogout }) {
     totalLate:    0,
     todayEntries: 0,
     todayExits:   0,
+    totalEmployees: 0,
   });
 
   const [departmentData, setDepartmentData] = useState([]);
@@ -56,16 +95,165 @@ function AdminDashboard({ onLogout }) {
     if (currentPage.page === 'dashboard') loadDashboardData();
   }, [currentPage.page]);
 
-  const loadDashboardData = async () => {
-    try {
-      const statsData = await getDashboardStats();
-      const deptData  = await getDepartmentAttendance();
-      setStats(statsData ?? { totalPresent:0, totalAbsent:0, totalLate:0, todayEntries:0, todayExits:0 });
-      setDepartmentData(Array.isArray(deptData) ? deptData : []);
-    } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+  useEffect(() => {
+    const loadEvents = async () => {
+      try {
+        // Fetch all events (API may support filtering but we'll be defensive)
+        const eventsData = await getEvents();
+        const eventsArr = Array.isArray(eventsData) ? eventsData : (eventsData?.data ?? []);
+
+        // Normalize event date string (YYYY-MM-DD) helper
+        const getEventDateStr = (ev) => {
+          if (!ev) return null;
+          return (ev.event_date || ev.date || ev.eventDate || '').toString().split('T')[0] || null;
+        };
+
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const todays = eventsArr.filter(ev => getEventDateStr(ev) === todayStr);
+
+        setAllEvents(eventsArr);
+        setTodayEvents(todays);
+
+        // Auto-select first event if none selected and today's events exist
+        if (todays.length > 0 && selectedEventFilter === 'all') {
+          setSelectedEventFilter(String(todays[0].event_ID ?? todays[0].id ?? todays[0].eventId));
+        }
+      } catch (err) {
+        console.error('Failed to load events:', err);
+        setAllEvents([]);
+        setTodayEvents([]);
+      }
+    };
+
+    loadEvents();
+  }, []);
+
+
+
+const loadDashboardData = async () => {
+  try {
+    let rawAttendance = [];   // This will hold the combined employee attendance data
+
+    if (selectedEventFilter === 'all') {
+      // === ALL EVENTS TODAY ===
+      // Fetch attendance for EVERY event happening today and combine them
+      for (const event of todayEvents) {
+        const eventId = getEventId(event);
+        if (!eventId) continue;
+
+        try {
+          const eventAtt = await getEventAttendance(eventId);
+          if (Array.isArray(eventAtt)) {
+            rawAttendance.push(...eventAtt);
+          }
+        } catch (e) {
+          console.warn(`Failed to load attendance for event ${eventId}`, e);
+        }
+      }
+    } else {
+      // === SINGLE SPECIFIC EVENT ===
+      const eventId = parseInt(selectedEventFilter);
+      if (eventId) {
+        try {
+          const eventAtt = await getEventAttendance(eventId);
+          if (Array.isArray(eventAtt)) {
+            rawAttendance = eventAtt;
+          }
+        } catch (e) {
+          console.warn(`Failed to load attendance for event ${eventId}`, e);
+        }
+      }
     }
+
+    // Now compute both stats and department breakdown from the same raw data
+    const normalizedStats = normalizeStats(rawAttendance, selectedEventFilter);
+    const aggregatedDepts = aggregateDepartmentData(rawAttendance);
+
+    setStats(normalizedStats);
+    setDepartmentData(aggregatedDepts);
+
+  } catch (err) {
+    console.error('Failed to load dashboard data:', err);
+    setStats({
+      totalPresent: 0, totalAbsent: 0, totalLate: 0,
+      todayEntries: 0, todayExits: 0, totalEmployees: 0
+    });
+    setDepartmentData([]);
+  }
+};
+const normalizeStats = (rawData, filterType) => {
+  if (filterType !== 'all') {
+    // Specific single event
+    if (!Array.isArray(rawData)) {
+      return { totalPresent:0, totalAbsent:0, totalLate:0, todayEntries:0, todayExits:0, totalEmployees:0 };
+    }
+
+    let present = 0;
+    let late    = 0;
+    let absent  = 0;
+
+    rawData.forEach(emp => {
+      if (emp.attended === true) {
+        if (emp.status === "Late") late++;
+        else present++;
+      } else {
+        absent++;
+      }
+    });
+
+    return {
+      totalPresent:   present,
+      totalAbsent:    absent,
+      totalLate:      late,
+      todayEntries:   present + late,
+      todayExits:     rawData.filter(e => !!e.checkOut).length,
+      totalEmployees: rawData.length,
+    };
+  }
+
+  // === "All Events Today" mode ===
+  if (!Array.isArray(rawData)) {
+    return { totalPresent:0, totalAbsent:0, totalLate:0, todayEntries:0, todayExits:0, totalEmployees:0 };
+  }
+
+  let present = 0;
+  let late    = 0;
+  let absent  = 0;
+
+  rawData.forEach(emp => {
+    if (emp.attended === true) {
+      if (emp.status === "Late") late++;
+      else present++;
+    } else {
+      absent++;
+    }
+  });
+
+  return {
+    totalPresent:   present,
+    totalAbsent:    absent,
+    totalLate:      late,
+    todayEntries:   present + late,
+    todayExits:     rawData.filter(e => !!e.checkOut).length,
+    totalEmployees: rawData.length,        // total targeted employees across today's events
   };
+};
+
+useEffect(() => {
+  if (currentPage.page === 'dashboard') {
+    loadDashboardData();
+  }
+}, [currentPage.page, selectedEventFilter]);
+
+useEffect(() => {
+  if (selectedEventFilter !== 'all') {
+    const event = todayEvents.find(e => getEventId(e) === parseInt(selectedEventFilter));
+    setSelectedEventData(event || null);
+  } else {
+    setSelectedEventData(null);
+  }
+}, [selectedEventFilter, todayEvents]);
 
   const total          = stats.totalPresent + stats.totalAbsent + stats.totalLate;
   const presentPercent = total ? (stats.totalPresent / total) * 100 : 0;
@@ -131,37 +319,107 @@ function AdminDashboard({ onLogout }) {
   // ── Dept Bars ──────────────────────────────────────────────────────────────
   const maxDeptTotal = Math.max(...departmentData.map(d => (d.present || 0) + (d.absent || 0)), 1);
 
-  const renderDashboard = () => (
-    <div className="dashboard-container">
-      <h1 className="dashboard-title mb-4">Dashboard Overview</h1>
+  const renderDashboard = () => {
+    const todayDateStr = new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
 
-      {/* ── STAT CARDS ── */}
-      <Row className="g-4 mb-4">
-        <Col md={6} lg={3}>
+    const isEventSelected = selectedEventFilter !== 'all';
+    const currentEventName = isEventSelected 
+      ? todayEvents.find(e => e.id === parseInt(selectedEventFilter))?.event_name 
+      : "All Events Today";
+
+    // Compute counts for Active / Upcoming events:
+    const getEventDateStr = (ev) => (ev?.event_date || ev?.date || ev?.eventDate || '').toString().split('T')[0] || null;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const activeEventsCount = todayEvents.filter(ev => {
+      const st = (ev.status ?? (ev.is_active !== undefined ? (ev.is_active ? 'activated' : 'deactivated') : '')).toString().toLowerCase();
+      return st === 'activated';
+    }).length;
+
+    const upcomingEventsCount = (allEvents || []).filter(ev => {
+      const evDate = getEventDateStr(ev);
+      if (!evDate) return false;
+      if (evDate > todayStr) return true; // future dates
+      if (evDate === todayStr) {
+        const st = (ev.status ?? (ev.is_active !== undefined ? (ev.is_active ? 'activated' : 'deactivated') : '')).toString().toLowerCase();
+        return st !== 'activated'; // later today but not activated
+      }
+      return false;
+    }).length;
+
+    return (
+      <div className="dashboard-container">
+        <h1 className="dashboard-title mb-4">
+          Dashboard {isEventSelected ? `- ${currentEventName}` : ": Today's Events"}
+        </h1>
+
+        <h2 className="dashboard-title mb-1" style={{ fontSize: '1.4rem', color: '#333' }}>
+          {todayDateStr}
+        </h2>
+
+      {/* Event Filter Dropdown */}
+      <div className="mb-4">
+        <select
+          className="form-select"
+          style={{ maxWidth: '320px', fontSize: '1rem' }}
+          value={selectedEventFilter}
+          onChange={(e) => setSelectedEventFilter(e.target.value)}
+        >
+          <option value="all">All Events Today</option>
+          {todayEvents.map((event) => {
+                    const id = event.event_ID ?? event.id ?? event.eventId;
+                    const name = event.event_name ?? event.eventName ?? event.name ?? `Event ${id}`;
+                    const time = event.event_time ?? event.time ?? '';
+                    return (
+                      <option key={id} value={String(id)}>
+                        {name} {time ? `- ${time}` : ''}
+                      </option>
+                    );
+                  })}
+        </select>
+      </div>
+      <Row xs={1} md={2} lg={5} className="g-4 mb-4">
+      <Col>
+          <Card className="stat-card">
+            <Card.Body>
+              <p className="stat-label">
+                Active Events Today
+                <InfoTooltip text="Number of events scheduled for today that are activated" />
+              </p>
+              <h2 className="stat-value text-success">{activeEventsCount}</h2>
+            </Card.Body>
+          </Card>
+        </Col>
+        <Col>
+          <Card className="stat-card">
+            <Card.Body>
+              <p className="stat-label">
+                Upcoming Events
+                <InfoTooltip text="Number of events scheduled for today that are not yet activated" />
+              </p>
+              <h2 className="stat-value text-success">{upcomingEventsCount}</h2>
+            </Card.Body>
+          </Card>
+        </Col>
+
+        <Col >
           <Card className="stat-card">
             <Card.Body>
               <p className="stat-label">
                 Present Today
-                <InfoTooltip text="Number of employees marked present today" />
+                <InfoTooltip text="Number of employees present today" />
               </p>
-              <h2 className="stat-value text-success">{stats.totalPresent}</h2>
+              <h2 className="stat-value text-warning">{stats.totalPresent}</h2>
             </Card.Body>
           </Card>
         </Col>
 
-        <Col md={6} lg={3}>
-          <Card className="stat-card">
-            <Card.Body>
-              <p className="stat-label">
-                Late Today
-                <InfoTooltip text="Number of employees who were late today" />
-              </p>
-              <h2 className="stat-value text-warning">{stats.totalLate}</h2>
-            </Card.Body>
-          </Card>
-        </Col>
-
-        <Col md={6} lg={3}>
+        <Col >
           <Card className="stat-card">
             <Card.Body>
               <p className="stat-label">
@@ -173,20 +431,25 @@ function AdminDashboard({ onLogout }) {
           </Card>
         </Col>
 
-        <Col md={6} lg={3}>
+        <Col>
           <Card className="stat-card">
             <Card.Body>
               <p className="stat-label">
-                Total Employees
-                <InfoTooltip text="Total number of employees in the system" />
+                {selectedEventFilter === 'all' 
+                  ? "Total Event Attendees" 
+                  : "Event Attendees"}
+                <InfoTooltip 
+                  text={selectedEventFilter === 'all' 
+                    ? "Total number of employees targeted across all events today" 
+                    : "Total number of employees set for this event"} 
+                />
               </p>
-              <h2 className="stat-value">{total}</h2>
+              <h2 className="stat-value">{stats.totalEmployees || total}</h2>
             </Card.Body>
           </Card>
         </Col>
       </Row>
-
-      {/* ── ENTRY / EXIT ── */}
+      {/* ── ENTRY / EXIT ──
       <Row className="g-4 mb-4">
         <Col md={6}>
           <Card className="gateway-card">
@@ -211,7 +474,7 @@ function AdminDashboard({ onLogout }) {
             </Card.Body>
           </Card>
         </Col>
-      </Row>
+      </Row> */}
 
       {/* ── CHARTS ── */}
       <Row className="g-4">
@@ -251,76 +514,113 @@ function AdminDashboard({ onLogout }) {
         </Col>
 
         {/* DEPT BARS */}
-        <Col lg={6}>
-          <Card className="analytics-card">
-            <Card.Body>
-              <h6 style={{ fontWeight:700, fontSize:15, marginBottom:2 }}>
-                Department-wise Attendance
-                <InfoTooltip text="Shows attendance for each department with Present and Absent counts" />
-              </h6>
-              <p style={{ fontSize:12, color:'#aaa', marginBottom:16 }}>
-                Attendance breakdown by department
-              </p>
+       {/* DEPT BARS - DYNAMIC */}
+<Col lg={6}>
+  <Card className="analytics-card">
+    <Card.Body>
+      <h6 style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>
+        {selectedEventFilter === 'all' 
+          ? "Department-wise Attendance (All Events Today)" 
+          : "Department-wise Attendance"}
+        <InfoTooltip 
+          text={selectedEventFilter === 'all' 
+            ? "Attendance breakdown across all events scheduled for today" 
+            : "Attendance breakdown for employees targeted in this event"} 
+        />
+      </h6>
+      <p style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>
+        {selectedEventFilter === 'all' 
+          ? "Aggregated by department for today's events" 
+          : "Breakdown by department for this event"}
+      </p>
 
-              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                {departmentData.map((dept, i) => {
-                  const present = dept.present || 0;
-                  const absent  = dept.absent  || 0;
-                  const BAR_BASE_WIDTH = 220;
-                  const presentPx = Math.round((present / maxDeptTotal) * BAR_BASE_WIDTH);
-                  const absentPx  = Math.round((absent  / maxDeptTotal) * BAR_BASE_WIDTH);
-                  return (
-                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10 }}>
-                      <span style={{ fontSize:15, color:'#555', fontWeight:500, width:150, textAlign:'left', flexShrink:0, lineHeight:1.2 }}>
-                        {dept.department_name}
-                      </span>
-                      <div style={{ display:'flex', gap:2, alignItems:'center', flexGrow:1 }}>
-                        {present > 0 && (
-                          <div style={{
-                            width: Math.max(presentPx, 20), height:24,
-                            background:'#28a745',
-                            borderRadius: absent === 0 ? 4 : '4px 0 0 4px',
-                            display:'flex', alignItems:'center', justifyContent:'center',
-                            color:'#fff', fontSize:11, fontWeight:700,
-                            minWidth: 'fit-content', padding: '0 5px'
-                          }}>
-                            {present}
-                          </div>
-                        )}
-                        {absent > 0 && (
-                          <div style={{
-                            width: Math.max(absentPx, 20), height:24,
-                            background:'#dc3545',
-                            borderRadius: present === 0 ? 4 : '0 4px 4px 0',
-                            display:'flex', alignItems:'center', justifyContent:'center',
-                            color:'#fff', fontSize:11, fontWeight:700,
-                            minWidth: 'fit-content', padding: '0 5px'
-                          }}>
-                            {absent}
-                          </div>
-                        )}
-                      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {departmentData.length > 0 ? (
+          departmentData.map((dept, i) => {
+            const present = dept.present || 0;
+            const absent  = dept.absent  || 0;
+            const BAR_BASE_WIDTH = 220;
+            const presentPx = Math.round((present / maxDeptTotal) * BAR_BASE_WIDTH);
+            const absentPx  = Math.round((absent  / maxDeptTotal) * BAR_BASE_WIDTH);
+
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ 
+                  fontSize: 15, 
+                  color: '#555', 
+                  fontWeight: 500, 
+                  width: 150, 
+                  textAlign: 'left', 
+                  flexShrink: 0, 
+                  lineHeight: 1.2 
+                }}>
+                  {dept.department_name}
+                </span>
+                <div style={{ display: 'flex', gap: 2, alignItems: 'center', flexGrow: 1 }}>
+                  {present > 0 && (
+                    <div style={{
+                      width: Math.max(presentPx, 20), 
+                      height: 24,
+                      background: '#28a745',
+                      borderRadius: absent === 0 ? 4 : '4px 0 0 4px',
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      color: '#fff', 
+                      fontSize: 11, 
+                      fontWeight: 700,
+                      minWidth: 'fit-content', 
+                      padding: '0 5px'
+                    }}>
+                      {present}
                     </div>
-                  );
-                })}
+                  )}
+                  {absent > 0 && (
+                    <div style={{
+                      width: Math.max(absentPx, 20), 
+                      height: 24,
+                      background: '#dc3545',
+                      borderRadius: present === 0 ? 4 : '0 4px 4px 0',
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      color: '#fff', 
+                      fontSize: 11, 
+                      fontWeight: 700,
+                      minWidth: 'fit-content', 
+                      padding: '0 5px'
+                    }}>
+                      {absent}
+                    </div>
+                  )}
+                </div>
               </div>
+            );
+          })
+        ) : (
+          <p style={{ color: '#888', fontStyle: 'italic', textAlign: 'center', padding: '20px 0' }}>
+            No department data available for the selected {selectedEventFilter === 'all' ? 'events' : 'event'}.
+          </p>
+        )}
+      </div>
 
-              {/* Legend */}
-              <div style={{ display:'flex', gap:20, marginTop:16, paddingTop:12, borderTop:'1px solid #f0f0f0' }}>
-                {[['#28a745','Present'],['#dc3545','Absent']].map(([color, label]) => (
-                  <span key={label} style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, color:'#555' }}>
-                    <span style={{ width:12, height:12, borderRadius:2, background:color, display:'inline-block' }} />
-                    {label}
-                  </span>
-                ))}
-              </div>
-            </Card.Body>
-          </Card>
-        </Col>
+      {/* Legend */}
+      <div style={{ display: 'flex', gap: 20, marginTop: 16, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
+        {[['#28a745', 'Present'], ['#dc3545', 'Absent']].map(([color, label]) => (
+          <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#555' }}>
+            <span style={{ width: 12, height: 12, borderRadius: 2, background: color, display: 'inline-block' }} />
+            {label}
+          </span>
+        ))}
+      </div>
+    </Card.Body>
+  </Card>
+</Col>
 
       </Row>
     </div>
   );
+};
 
   return (
     <div className="admin-dashboard">
