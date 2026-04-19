@@ -779,9 +779,10 @@
   flex-wrap: nowrap;
 }
 
-/* ── Edit — solid blue, safe/neutral action ── */
-.btn-emp-edit {
-  background: #1a6a9a !important;
+/* ── Action buttons in table (Edit, QR, Archive) — shared layout ── */
+.btn-emp-edit,
+.btn-emp-qr,
+.btn-emp-archive {
   border: none !important;
   border-radius: 8px !important;
   padding: 5px 12px !important;
@@ -791,38 +792,42 @@
   letter-spacing: 0.2px;
   transition: all 0.2s ease;
   white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(26, 106, 154, 0.30);
+}
+
+/* ── Edit & Archive — green style ── */
+.btn-emp-edit,
+.btn-emp-archive {
+  background: #28a745 !important;
+  box-shadow: 0 2px 6px rgba(40, 167, 69, 0.30);
 }
 
 .btn-emp-edit:hover,
-.btn-emp-edit:focus {
-  background: #155c88 !important;
-  color: #ffffff !important;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(26, 106, 154, 0.40);
-}
-
-/* ── Archive — solid warm-red, destructive action ── */
-.btn-emp-archive {
-  background: #c53030 !important;
-  border: none !important;
-  border-radius: 8px !important;
-  padding: 5px 12px !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  color: #ffffff !important;
-  letter-spacing: 0.2px;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(197, 48, 48, 0.30);
-}
-
+.btn-emp-edit:focus,
 .btn-emp-archive:hover,
 .btn-emp-archive:focus {
-  background: #9b2c2c !important;
-  color: #ffffff !important;
+  background: #218838 !important;
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(197, 48, 48, 0.40);
+  box-shadow: 0 4px 10px rgba(40, 167, 69, 0.40);
+}
+
+/* ── QR — dark blue style ── */
+.btn-emp-qr,
+.action-btn-group .btn-emp-qr {
+  background-color: #0d47a1 !important;
+  background: #0d47a1 !important;
+  box-shadow: 0 2px 6px rgba(13, 71, 161, 0.30) !important;
+  color: #ffffff !important;
+}
+
+.btn-emp-qr:hover,
+.btn-emp-qr:focus,
+.action-btn-group .btn-emp-qr:hover,
+.action-btn-group .btn-emp-qr:focus {
+  background-color: #0a3d91 !important;
+  background: #0a3d91 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 10px rgba(13, 71, 161, 0.40) !important;
+  color: #ffffff !important;
 }
 
 /* Modal cancel — neutral grey */

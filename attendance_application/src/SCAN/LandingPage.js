@@ -5,6 +5,7 @@ import './LandingPage.css';
 import { getEvents, getEmployees, getEmployeePhotos, markAttendance, getEventSetup } from '../api';
 import LoginPage from './Adminlogin';
 import * as faceapi from 'face-api.js';
+import { Html5QrcodeScanner, Html5Qrcode } from "html5-qrcode";
 
 
 
@@ -51,6 +52,9 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   const [lastDetectionTime, setLastDetectionTime] = useState(0);
   const DETECTION_INTERVAL = 250; // 250ms = ~4 detections per second (good balance)
   const [isScanning, setIsScanning] = useState(true);   // Controls whether we run recognition
+
+  const [qrMode, setQrMode] = useState(false);
+  const qrScannerRef = useRef(null);
 
   // --- Cooldown Tracking Refs ---
   const lastFaceIdRef = useRef(null);
@@ -150,6 +154,95 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
     setManualError('');
     setManualSearched(false);
     setRecognizedUser(null);
+  };
+
+  const startQrScanner = () => {
+    if (!selectedEvent) {
+      alert("Please select an event first");
+      return;
+    }
+    stopCamera();
+    setManualMode(false);
+    setQrMode(true);
+  };
+
+  const stopQrScanner = async () => {
+    if (qrScannerRef.current) {
+      try {
+        await qrScannerRef.current.stop();
+        qrScannerRef.current = null;
+      } catch (err) {
+        console.warn("Failed to stop QR scanner:", err);
+      }
+    }
+    setQrMode(false);
+    setRecognizedUser(null);
+  };
+
+  useEffect(() => {
+    if (qrMode && !qrScannerRef.current) {
+      const html5QrCode = new Html5Qrcode("qr-reader");
+      qrScannerRef.current = html5QrCode;
+
+      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+      html5QrCode.start(
+        { facingMode: "user" },
+        config,
+        (decodedText) => {
+          try {
+            const data = JSON.parse(decodedText);
+            if (data.employee_id) {
+              handleQrScan(data);
+            }
+          } catch (e) {
+            console.warn("Invalid QR data:", decodedText);
+          }
+        },
+        (errorMessage) => {
+          // ignore scan errors
+        }
+      ).catch(err => {
+        console.error("Failed to start QR scanner:", err);
+        setQrMode(false);
+      });
+    }
+
+    return () => {
+      if (qrScannerRef.current && !qrMode) {
+        qrScannerRef.current.stop().catch(err => console.warn(err));
+        qrScannerRef.current = null;
+      }
+    };
+  }, [qrMode]);
+
+  const handleQrScan = (data) => {
+    const now = Date.now();
+    const employeeId = data.employee_id;
+
+    // Cooldown check
+    if (employeeId === lastFaceIdRef.current && (now - lastScanTimeRef.current < SCAN_COOLDOWN)) {
+      return;
+    }
+
+    // Find employee in loaded data to get department/role
+    const found = employees.find(emp => String(emp.employee_code) === String(employeeId) || String(emp.employee_ID) === String(employeeId));
+    
+    const newUser = {
+      name: data.name || (found ? `${found.employee_firstName} ${found.employee_LastName}` : 'Unknown'),
+      id: employeeId,
+      department: data.department || (found ? found.department_name : ''),
+      role: data.designation || (found ? found.position : ''),
+      employeeId: found ? found.employee_ID : employeeId, // Fallback if not found in list
+      photo: null,
+      lastAction: null
+    };
+
+    lastFaceIdRef.current = employeeId;
+    lastScanTimeRef.current = now;
+
+    setRecognizedUser(newUser);
+    handleMarkAttendance(newUser, 'qr');
   };
 
   const [clockTapCount, setClockTapCount] = useState(0);
@@ -488,7 +581,7 @@ const stopCamera = () => {
   };
 
 
-  const handleMarkAttendance = async (user = recognizedUser) => {
+  const handleMarkAttendance = async (user = recognizedUser, method = 'face') => {
     if (!user || !selectedEvent) return;
 
     try {
@@ -496,19 +589,20 @@ const stopCamera = () => {
       setShowConfirmation(true);
 
       // --- CRITICAL: Refresh event details to get latest scan_mode ---
-        const freshEvent = await getEventSetup(selectedEvent);
-        const dbScanMode = freshEvent?.scan_mode || 'check_in';
-        
-        // STRICT REQUIREMENT: Prioritize localStorage for persistence
-        const currentMode = localStorage.getItem(`attendanceMode_${selectedEvent}`) || dbScanMode;
-        const mode = currentMode === 'check_out' ? 'Check Out' : 'Check In';
-        
-        setAttendanceType(mode);
+      const freshEvent = await getEventSetup(selectedEvent);
+      const dbScanMode = freshEvent?.scan_mode || 'check_in';
+      
+      // STRICT REQUIREMENT: Prioritize localStorage for persistence
+      const currentMode = localStorage.getItem(`attendanceMode_${selectedEvent}`) || dbScanMode;
+      const mode = currentMode === 'check_out' ? 'Check Out' : 'Check In';
+      
+      setAttendanceType(mode);
       
       const res = await markAttendance({
         employee_id: user.employeeId,
         event_id: selectedEvent,
-        attendance_type: mode
+        attendance_type: mode,
+        method: method
       });
 
       setAttendanceStatus('success');
@@ -707,27 +801,49 @@ const stopCamera = () => {
               <Card.Body>
 
                 <div className="d-flex align-items-center justify-content-between mb-3">
-                  <h5 className="mb-0 fw-bold">
-                    {manualMode
-                      ? <><i className="bi bi-keyboard me-2 text-warning"></i>Manual ID Entry</>
-                      : <><i className="bi bi-camera-video me-2 text-primary"></i>Face Recognition</>}
+                  <h5 className="mb-0 fw-bold" style={{ color: "white" }}>
+                    {manualMode ? (
+                      <><i className="bi bi-keyboard me-2 text-warning"></i>Manual ID Entry</>
+                    ) : qrMode ? (
+                      <><i className="bi bi-qr-code-scan me-2 text-info"></i>QR Code Scan</>
+                    ) : (
+                      <><i className="bi bi-camera-video me-2 text-primary"></i>Face Recognition</>
+                    )}
                   </h5>
-                  <button
-                    className={`camera-fallback-toggle ${manualMode ? 'toggle-active' : ''}`}
-                    onClick={() => {
-                      if (manualMode) {
-                        handleExitManualMode();
-                      } else {
-                        stopCamera();
-                        setManualMode(true);
-                      }
-                    }}
-                    title={manualMode ? 'Switch back to camera' : 'Camera down? Use ID instead'}
-                  >
-                    {manualMode
-                      ? <><i className="bi bi-camera-video"></i> Use Camera</>
-                      : <><i className="bi bi-keyboard"></i> Camera Down?</>}
-                  </button>
+
+                  <div className="d-flex flex-column gap-2 align-items-end">
+                    <button
+                      className={`camera-fallback-toggle ${manualMode ? 'toggle-active' : ''}`}
+                      onClick={() => {
+                        if (manualMode) {
+                          handleExitManualMode();
+                        } else {
+                          stopCamera();
+                          stopQrScanner();
+                          setManualMode(true);
+                        }
+                      }}
+                      title={manualMode ? 'Switch back to camera' : 'Camera down? Use ID instead'}
+                    >
+                      {manualMode
+                        ? <><i className="bi bi-camera-video"></i> Use Camera</>
+                        : <><i className="bi bi-keyboard"></i> Camera Down?</>}
+                    </button>
+                    <button
+                      className={`camera-fallback-toggle ${qrMode ? 'toggle-active' : ''}`}
+                      onClick={() => {
+                        if (qrMode) {
+                          stopQrScanner();
+                        } else {
+                          startQrScanner();
+                        }
+                      }}
+                    >
+                      {qrMode
+                        ? <><i className="bi bi-camera-video"></i> Use Camera</>
+                        : <><i className="bi bi-qr-code-scan"></i> Scan QR Code</>}
+                    </button>
+                  </div>
                 </div>
 
                 {/* ── SCAN MODE LABEL ── */}
@@ -748,8 +864,8 @@ const stopCamera = () => {
                   </div>
                 )}
 
-                                {/* ── CAMERA MODE ── */}
-{!manualMode && (
+                {/* ── CAMERA MODE ── */}
+{!manualMode && !qrMode && (
   <>
     <div className="camera-video-container-small" style={{ position: 'relative' }}>
       <video
@@ -777,7 +893,6 @@ const stopCamera = () => {
       )}
 
       {/* Live Detection Overlay Box - Shows who is being detected */}
-      jsx{/* Live Detection Overlay Box */}
       {cameraActive && currentDetectedName && (
         <div style={{
           position: 'absolute',
@@ -858,6 +973,17 @@ const stopCamera = () => {
 )}
   </>
 )}
+
+                {/* ── QR CODE MODE ── */}
+                {qrMode && !recognizedUser && (
+                  <div className="qr-scanner-section text-center">
+                    <div id="qr-reader" style={{ width: '100%', maxWidth: '500px', margin: '0 auto', borderRadius: '12px', overflow: 'hidden' }}></div>
+                    <p className="text-muted mt-3">Position employee QR code within the frame</p>
+                    <Button variant="danger" className="mt-2" onClick={stopQrScanner}>
+                      Stop QR Scanner
+                    </Button>
+                  </div>
+                )}
                 {/* ── MANUAL ID MODE  */}
                 {manualMode && !recognizedUser && (
                   <div className="manual-id-section">

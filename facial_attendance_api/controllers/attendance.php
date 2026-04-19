@@ -69,6 +69,7 @@ if ($method === 'POST') {
     $employee_id     = $data["employee_id"] ?? null;
     $event_id        = $data["event_id"] ?? null;
     $attendance_type = $data["attendance_type"] ?? null;
+    $method          = $data["method"] ?? 'face';
 
     if (!$employee_id || !$event_id || !$attendance_type) {
         echo json_encode([
@@ -173,21 +174,21 @@ if ($method === 'POST') {
             try {
                 $insertQuery = "
                     INSERT INTO attendance
-                    (employee_ID, event_ID, time_in, status)
-                    VALUES (?, ?, ?, ?)
+                    (employee_ID, event_ID, time_in, status, method)
+                    VALUES (?, ?, ?, ?, ?)
                 ";
                 $stmt = $conn->prepare($insertQuery);
-                $stmt->execute([ $employee_id, $event_id, $currentTime, $status ]);
+                $stmt->execute([ $employee_id, $event_id, $currentTime, $status, $method ]);
             } catch (Exception $e1) {
                 // Fallback Attempt: attendance_status column
                 try {
                     $insertQuery = "
                         INSERT INTO attendance
-                        (employee_ID, event_ID, time_in, attendance_status)
-                        VALUES (?, ?, ?, ?)
+                        (employee_ID, event_ID, time_in, attendance_status, method)
+                        VALUES (?, ?, ?, ?, ?)
                     ";
                     $stmt = $conn->prepare($insertQuery);
-                    $stmt->execute([ $employee_id, $event_id, $currentTime, $status ]);
+                    $stmt->execute([ $employee_id, $event_id, $currentTime, $status, $method ]);
                 } catch (Exception $e2) {
                     throw new Exception("Could not insert attendance: " . $e1->getMessage());
                 }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Row, Col, Card, Form, Button, Table, Modal, Alert } from 'react-bootstrap';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import * as faceapi from 'face-api.js';
+import { QRCodeCanvas } from 'qrcode.react';
 import {
   getEmployees,
   addEmployee,
@@ -32,6 +33,10 @@ function EmployeesPage() {
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
   const [archiveTargetId, setArchiveTargetId]       = useState(null);
   const [archiveTargetName, setArchiveTargetName]   = useState('');
+
+  // ── QR Code modal ──
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [selectedQRUser, setSelectedQRUser] = useState(null);
 
   const [formData, setFormData] = useState({
     employee_code:      '',
@@ -573,6 +578,23 @@ const closeCamera = () => {
     setShowArchiveConfirm(true);
   };
 
+  const openQRModal = (emp) => {
+    setSelectedQRUser(emp);
+    setShowQRModal(true);
+  };
+
+  const downloadQRCode = () => {
+    const canvas = document.getElementById('employee-qr-canvas');
+    if (!canvas) return;
+    const pngUrl = canvas.toDataURL('image/png').replace('image/png', 'image/octet-stream');
+    let downloadLink = document.createElement('a');
+    downloadLink.href = pngUrl;
+    downloadLink.download = `QR_${selectedQRUser?.employee_code || 'employee'}.png`;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+  };
+
   const confirmArchive = async () => {
     setShowArchiveConfirm(false);
     try {
@@ -658,13 +680,24 @@ const closeCamera = () => {
                           className="btn-emp-edit"
                           size="sm"
                           onClick={() => openEditModal(emp)}
+                          title="Edit"
                         >
                           Edit
+                        </Button>
+                        <Button
+                          className="btn-emp-qr"
+                          size="sm"
+                          style={{ backgroundColor: '#0d47a1', color: '#fff', border: 'none' }}
+                          onClick={() => openQRModal(emp)}
+                          title="View QR Code"
+                        >
+                          QR
                         </Button>
                         <Button
                           className="btn-emp-archive"
                           size="sm"
                           onClick={() => askArchive(emp)}
+                          title="Archive"
                         >
                           Archive
                         </Button>
@@ -1066,6 +1099,45 @@ const closeCamera = () => {
               )}
             </div>
           </div>
+        </Modal.Body>
+      </Modal>
+
+      {/* ── QR Code Modal ── */}
+      <Modal show={showQRModal} onHide={() => setShowQRModal(false)} centered size="sm">
+        <Modal.Header closeButton>
+          <Modal.Title>Employee QR Code</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="text-center py-4">
+          {selectedQRUser && (
+            <>
+              <div className="mb-3 p-3 bg-white d-inline-block rounded shadow-sm">
+                <QRCodeCanvas
+                  id="employee-qr-canvas"
+                  value={JSON.stringify({
+                    employee_id: selectedQRUser.employee_code,
+                    name: `${selectedQRUser.employee_firstName} ${selectedQRUser.employee_LastName}`,
+                    designation: selectedQRUser.position || '',
+                    office: "Pamantasan ng Lungsod ng Pasig",
+                    department: selectedQRUser.department_name || ''
+                  })}
+                  size={200}
+                  level={"H"}
+                  includeMargin={true}
+                />
+              </div>
+              <h5 className="fw-bold mb-1">{selectedQRUser.employee_firstName} {selectedQRUser.employee_LastName}</h5>
+              <p className="text-muted small mb-3">{selectedQRUser.employee_code}</p>
+              <div className="d-grid">
+                <Button 
+                  className="btn-emp-qr" 
+                  style={{ backgroundColor: '#0d47a1', color: '#fff', border: 'none' }}
+                  onClick={downloadQRCode}
+                >
+                  <i className="bi bi-download me-2"></i>Download PNG
+                </Button>
+              </div>
+            </>
+          )}
         </Modal.Body>
       </Modal>
 
