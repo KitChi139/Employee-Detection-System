@@ -33,6 +33,8 @@ function AdminDashboard({ onLogout }) {
   const [allEvents, setAllEvents] = useState([]);
   const [selectedEventData, setSelectedEventData] = useState(null);
 
+  const [rawAttendanceData, setRawAttendanceData] = useState([]);
+
 
   const getEventId = (ev) => ev?.event_ID ?? ev?.id ?? ev?.eventId ?? null;
 
@@ -172,7 +174,7 @@ const loadDashboardData = async () => {
 
     setStats(normalizedStats);
     setDepartmentData(aggregatedDepts);
-
+    setRawAttendanceData(rawAttendance);   // ← Add this line
   } catch (err) {
     console.error('Failed to load dashboard data:', err);
     setStats({
@@ -618,6 +620,94 @@ useEffect(() => {
 </Col>
 
       </Row>
+
+      {/* ── PER-EVENT BREAKDOWN ──
+      {selectedEventFilter === 'all' && (
+        <div className="mt-5">
+          <Card className="analytics-card">
+            <Card.Body>
+              <h6 style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>
+                Per-Event Breakdown
+                <InfoTooltip text="Detailed attendance breakdown for each individual event happening today" />
+              </h6>
+              <p style={{ fontSize: 12, color: '#aaa', marginBottom: 20 }}>
+                Click on any event card to switch to its detailed view
+              </p>
+
+              <div className="space-y-4">
+                {todayEvents.length > 0 ? (
+                  todayEvents.map((event) => {
+                    const eventId = getEventId(event);
+                    if (!eventId) return null;
+
+                    // Use rawAttendanceData from state (correct reference)
+                    const eventAttendance = rawAttendanceData.filter(
+                      (emp) => String(emp.event_id || emp.eventId || emp.event_ID || '') === String(eventId)
+                    );
+
+                    const present = eventAttendance.filter(
+                      emp => emp.attended === true && emp.status !== "Late"
+                    ).length;
+
+                    const late = eventAttendance.filter(
+                      emp => emp.attended === true && emp.status === "Late"
+                    ).length;
+
+                    const absent = eventAttendance.filter(
+                      emp => emp.attended === false
+                    ).length;
+
+                    const total = present + late + absent || 1;
+                    const presentPercent = ((present / total) * 100).toFixed(1);
+
+                    return (
+                      <div
+                        key={eventId}
+                        className="cursor-pointer rounded-lg border border-gray-200 p-5 transition-all hover:border-blue-500 hover:shadow-md"
+                        onClick={() => setSelectedEventFilter(String(eventId))}
+                        style={{ backgroundColor: '#fff' }}
+                      >
+                        <div className="mb-4 flex items-start justify-between">
+                          <div>
+                            <h5 className="mb-1 fw-bold">
+                              {event.event_name || event.name || `Event ${eventId}`}
+                            </h5>
+                            <p className="text-muted mb-0">
+                              {event.event_time || event.time || 'No time specified'}
+                            </p>
+                          </div>
+                          <div className="rounded-full bg-green-100 px-4 py-1 text-sm text-green-700 font-medium">
+                            {presentPercent}% Present
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="rounded-lg bg-green-50 p-4 text-center">
+                            <p className="mb-1 text-sm text-gray-600">Present</p>
+                            <p className="text-3xl font-bold text-green-700">{present}</p>
+                          </div>
+                          <div className="rounded-lg bg-amber-50 p-4 text-center">
+                            <p className="mb-1 text-sm text-gray-600">Late</p>
+                            <p className="text-3xl font-bold text-amber-700">{late}</p>
+                          </div>
+                          <div className="rounded-lg bg-red-50 p-4 text-center">
+                            <p className="mb-1 text-sm text-gray-600">Absent</p>
+                            <p className="text-3xl font-bold text-red-700">{absent}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-center text-muted py-8">
+                    No events scheduled for today.
+                  </p>
+                )}
+              </div>
+            </Card.Body>
+          </Card>
+        </div>
+      )} */}
     </div>
   );
 };

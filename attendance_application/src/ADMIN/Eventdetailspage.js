@@ -77,6 +77,7 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
   );
   const [scanMode, setScanMode] = useState(null);
   const [hasSetup, setHasSetup] = useState(false);
+  const [viewMode, setViewMode] = useState('table'); // 'table' | 'xml'
 
   // Load mode from localStorage on init
   useEffect(() => {
@@ -623,6 +624,58 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
       setExporting(false);
     }
   };
+
+  const generateAttendanceXML = () => {
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    xml += `<event_attendance>\n`;
+    xml += `  <event_id>${event_ID}</event_id>\n`;
+    xml += `  <event_name>${eventName}</event_name>\n`;
+    xml += `  <event_date>${eventDate}</event_date>\n`;
+    xml += `  <total_records>${filtered.length}</total_records>\n`;
+    xml += `  <records>\n`;
+
+    filtered.forEach((r, index) => {
+      xml += `    <record>\n`;
+      xml += `      <no>${index + 1}</no>\n`;
+      xml += `      <employee_code>${r.employee_code}</employee_code>\n`;
+      xml += `      <full_name>${r.fullName}</full_name>\n`;
+      xml += `      <department>${r.department_name}</department>\n`;
+      xml += `      <check_in>${r.checkIn || ''}</check_in>\n`;
+      xml += `      <check_out>${r.checkOut || ''}</check_out>\n`;
+      xml += `      <attended>${r.attended ? 'Yes' : 'No'}</attended>\n`;
+      xml += `      <status>${r.status || ''}</status>\n`;
+      xml += `    </record>\n`;
+    });
+
+    xml += `  </records>\n`;
+    xml += `</event_attendance>`;
+    return xml;
+  };
+
+  // Copy XML to clipboard
+  const copyXMLToClipboard = async () => {
+    const xmlContent = generateAttendanceXML();
+    try {
+      await navigator.clipboard.writeText(xmlContent);
+      alert('XML copied to clipboard!');
+    } catch (err) {
+      alert('Failed to copy XML.');
+    }
+  };
+
+  // Download XML
+  const downloadXML = () => {
+    const xmlContent = generateAttendanceXML();
+    const blob = new Blob([xmlContent], { type: 'application/xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Attendance_${eventName.replace(/\s+/g, '_')}_${eventDate || 'date'}.xml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
@@ -693,10 +746,35 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
               >
                 Check Out
               </Button>
+              <Button
+                variant={viewMode === 'table' ? 'primary' : 'outline-primary'}
+                size="sm"
+                onClick={() => setViewMode('table')}
+              >
+                Table View
+              </Button>
+              <Button
+                variant={viewMode === 'xml' ? 'primary' : 'outline-primary'}
+                size="sm"
+                onClick={() => setViewMode('xml')}
+              >
+                XML View
+              </Button>
+              {viewMode === 'xml' && (
+                <>
+                  <Button variant={viewMode === 'xml' ? 'primary' : 'outline-primary'} onClick={copyXMLToClipboard}>
+                    Copy XML
+                  </Button>
+                  <Button variant={viewMode === 'xml' ? 'primary' : 'outline-primary'} onClick={downloadXML}>
+                    Download XML
+                  </Button>
+                </>
+              )}
               <div className="ms-3">
                 <Button onClick={handleExportLog} disabled={exporting || !hasSetup} className="btn-export-pdf">
                   {exporting ? 'Exporting…' : 'Export PDF'}
                 </Button>
+                
               </div>
             </div>
           </div>
@@ -723,7 +801,7 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
               </select>
             </Col>
           </Row>
-
+          {viewMode === 'table' ? (        
           <div className="table-responsive">
             <table className="attendance-table">
               <thead>
@@ -762,6 +840,24 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
               </tbody>
             </table>
           </div>
+          ) : (
+            <div className="xml-view mt-3">
+              <pre style={{
+                background: '#1e1e1e',
+                color: '#d4d4d4',
+                padding: '20px',
+                borderRadius: '8px',
+                overflow: 'auto',
+                maxHeight: '65vh',
+                fontSize: '13.5px',
+                lineHeight: '1.5',
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'Consolas, Monaco, monospace'
+              }}>
+                {generateAttendanceXML()}
+              </pre>
+            </div>
+          )}
 
           <div className="table-footer">
             Showing {filtered.length} of {records.length} employees
