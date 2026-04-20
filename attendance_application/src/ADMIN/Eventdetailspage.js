@@ -882,64 +882,104 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
       </Card>
 
       <Modal show={showSetupModal} onHide={() => setShowSetupModal(false)} size="lg" centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Setup Event Employees</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form.Control
-            className="mb-3"
-            type="text"
-            placeholder="Search employee number or name..."
-            value={setupSearch}
-            onChange={(e) => setSetupSearch(e.target.value)}
-          />
+  <Modal.Header closeButton>
+    <div>
+      <Modal.Title>Setup Event Employees</Modal.Title>
+      <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.72)', marginTop: 2 }}>
+        Select who should attend this event
+      </p>
+    </div>
+  </Modal.Header>
+  <Modal.Body>
+    <Form.Control
+      className="mb-3 search-input"
+      type="text"
+      placeholder="Search employee number or name..."
+      value={setupSearch}
+      onChange={(e) => setSetupSearch(e.target.value)}
+    />
 
-          <div className="mb-3">
-            <strong>Departments</strong>
-            <div className="d-flex flex-wrap gap-3 mt-2">
-              {allDepartments.map((dept) => {
-                const deptEmployees = allEmployees.filter(
-                  emp => Number(emp.department_ID) === Number(dept.department_ID)
-                );
-                const allSelected = deptEmployees.length > 0 &&
-                  deptEmployees.every(emp => selectedEmployeeIds.has(Number(emp.employee_ID)));
-                return (
-                  <Form.Check
-                    key={dept.department_ID}
-                    type="checkbox"
-                    label={dept.department_name}
-                    checked={allSelected}
-                    onChange={(e) => handleDepartmentToggle(dept.department_ID, e.target.checked)}
-                  />
-                );
-              })}
-            </div>
-          </div>
+    <div className="mb-3">
+      <div className="setup-section-header">
+        <span className="setup-section-label">Departments</span>
+        <span
+          className="setup-select-all"
+          onClick={() => {
+            const allIds = new Set(allEmployees.map(e => Number(e.employee_ID)));
+            const allSelected = allEmployees.every(e => selectedEmployeeIds.has(Number(e.employee_ID)));
+            setSelectedEmployeeIds(allSelected ? new Set() : allIds);
+          }}
+        >
+          {allEmployees.every(e => selectedEmployeeIds.has(Number(e.employee_ID))) ? 'Deselect all' : 'Select all'}
+        </span>
+      </div>
+      <div className="dept-chips-wrap">
+        {allDepartments.map((dept) => {
+          const deptEmployees = allEmployees.filter(
+            emp => Number(emp.department_ID) === Number(dept.department_ID)
+          );
+          const allSelected = deptEmployees.length > 0 &&
+            deptEmployees.every(emp => selectedEmployeeIds.has(Number(emp.employee_ID)));
+          return (
+            <label key={dept.department_ID} className={`dept-chip ${allSelected ? 'dept-chip--selected' : ''}`}>
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={(e) => handleDepartmentToggle(dept.department_ID, e.target.checked)}
+                style={{ accentColor: '#28a745', width: 12, height: 12 }}
+              />
+              {dept.department_name}
+            </label>
+          );
+        })}
+      </div>
+    </div>
 
-          <div style={{ maxHeight: 320, overflow: 'auto', border: '1px solid #eee', borderRadius: 8, padding: 12 }}>
-            {setupFilteredEmployees.map((emp) => {
-              const employeeId = Number(emp.employee_ID);
-              return (
-                <Form.Check
-                  key={employeeId}
-                  type="checkbox"
-                  className="mb-2"
-                  label={`${emp.employee_code} - ${emp.employee_firstName} ${emp.employee_LastName}`}
-                  checked={selectedEmployeeIds.has(employeeId)}
-                  onChange={(e) => handleEmployeeToggle(employeeId, e.target.checked)}
-                />
-              );
-            })}
-            {setupFilteredEmployees.length === 0 && <div>No employees found.</div>}
+    <div className="employee-list-box">
+      <div className="employee-list-header">
+        <span className="setup-section-label">Employees</span>
+        <span style={{ fontSize: 12, color: 'var(--bs-secondary-color, #6c757d)' }}>
+          {selectedEmployeeIds.size} selected
+        </span>
+      </div>
+      <div className="employee-list-scroll">
+        {setupFilteredEmployees.map((emp) => {
+          const employeeId = Number(emp.employee_ID);
+          const isChecked = selectedEmployeeIds.has(employeeId);
+          return (
+            <label key={employeeId} className={`employee-row ${isChecked ? 'employee-row--selected' : ''}`}>
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={(e) => handleEmployeeToggle(employeeId, e.target.checked)}
+                style={{ accentColor: '#28a745', width: 14, height: 14, flexShrink: 0 }}
+              />
+              <div className="employee-row-info">
+                <p className="employee-row-name">{emp.employee_firstName} {emp.employee_LastName}</p>
+                <p className="employee-row-sub">{emp.employee_code} · {emp.department_name}</p>
+              </div>
+              <span className="employee-dept-badge">{emp.department_name}</span>
+            </label>
+          );
+        })}
+        {setupFilteredEmployees.length === 0 && (
+          <div style={{ padding: '20px', textAlign: 'center', color: '#888', fontSize: 13 }}>
+            No employees found
           </div>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowSetupModal(false)}>Cancel</Button>
-          <Button variant="primary" onClick={saveSetup} disabled={savingSetup}>
-            {savingSetup ? 'Saving...' : 'Complete'}
-          </Button>
-        </Modal.Footer>
-      </Modal>
+        )}
+      </div>
+    </div>
+  </Modal.Body>
+  <Modal.Footer>
+    <span style={{ fontSize: 12, color: '#6c757d', marginRight: 'auto' }}>
+      {selectedEmployeeIds.size} of {allEmployees.length} employees selected
+    </span>
+    <Button variant="secondary" onClick={() => setShowSetupModal(false)}>Cancel</Button>
+    <Button variant="primary" onClick={saveSetup} disabled={savingSetup}>
+      {savingSetup ? 'Saving...' : 'Complete'}
+    </Button>
+  </Modal.Footer>
+</Modal>
 
       {/* Success/Error Feedback Modal */}
       <Modal 
