@@ -72,7 +72,7 @@ body.overlay-active {
 .main-content {
   position: relative;
   z-index: 5;
-  padding-top: 175px;
+  padding-top: 10px;
   padding-bottom: 10px;
   animation: slideUp 0.6s ease-out;
 }
