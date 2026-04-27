@@ -44,13 +44,13 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   const [dataError, setDataError]           = useState('');
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const detectionLoopRef = useRef(null);
+  // Pre-parsed & pre-normalized embeddings — built once when employees load, never rebuilt
+  const cachedEmbeddingsRef = useRef([]); // [{ emp, vec: Float32Array, norm: number }]
   const [recognitionConfidence, setRecognitionConfidence] = useState(0);
   const [recognitionTimer, setRecognitionTimer] = useState(null);
   const [showConfirmButtons, setShowConfirmButtons] = useState(false);
   const [currentDetectedName, setCurrentDetectedName] = useState('');
   const [currentConfidence, setCurrentConfidence] = useState(0);
-  const [lastDetectionTime, setLastDetectionTime] = useState(0);
-  const DETECTION_INTERVAL = 250; // 250ms = ~4 detections per second (good balance)
   const [isScanning, setIsScanning] = useState(true);   // Controls whether we run recognition
 
   const [qrMode, setQrMode] = useState(false);
@@ -144,7 +144,6 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
     setRecognitionConfidence(0);
     setCurrentDetectedName('');
     setCurrentConfidence(0);
-    setLastDetectionTime(0);        // Important: reset timer
     setIsScanning(true);            // Resume scanning
   };
 
@@ -424,119 +423,106 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
       setupBackend();
     }, []);
 
-  // Live Face Detection + Overlay (runs continuously while camera is active)
-// Live Face Detection + Recognition (Optimized + Pause after match)
-useEffect(() => {
-  if (!cameraActive || !modelsLoaded || !employees.length || !isScanning) {
-    setCurrentDetectedName('');
-    setCurrentConfidence(0);
-    return;
-  }
+  // Live Face Detection + Recognition — optimized with RAF + pre-built cache
+  useEffect(() => {
+    if (!cameraActive || !modelsLoaded || !employees.length || !isScanning) {
+      setCurrentDetectedName('');
+      setCurrentConfidence(0);
+      return;
+    }
 
-  const runRecognition = async () => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 2) return;
+    let rafId = null;
+    let lastRun = 0;
+    const INTERVAL = 350; // ms between detections — enough for smooth UI without hammering CPU
 
-    const now = Date.now();
-    if (now - lastDetectionTime < DETECTION_INTERVAL) return;
-    setLastDetectionTime(now);
+    const runRecognition = async (timestamp) => {
+      rafId = requestAnimationFrame(runRecognition);
 
-    try {
-      const detection = await faceapi
-        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ 
-          inputSize: 160,           // Reduced for speed
-          scoreThreshold: 0.35 
-        }))
-        .withFaceLandmarks()
-        .withFaceDescriptor();
+      if (timestamp - lastRun < INTERVAL) return;
+      lastRun = timestamp;
 
-      if (!detection) {
-        setCurrentDetectedName('');
-        setCurrentConfidence(0);
-        return;
-      }
+      const video = videoRef.current;
+      if (!video || video.readyState < 2) return;
 
-      const liveEmbedding = detection.descriptor;
+      try {
+        // Skip withFaceLandmarks — not needed for recognition, saves ~30% CPU
+        const detection = await faceapi
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({
+            inputSize: 128,        // Smallest size — fast enough for attendance
+            scoreThreshold: 0.4
+          }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
 
-      let bestMatch = null;
-      let bestScore = -Infinity;
-
-      for (const emp of employees) {
-        if (!emp.embedding) continue;
-
-        let storedArray = emp.embedding;
-        if (typeof emp.embedding === 'string') {
-          try {
-            storedArray = JSON.parse(emp.embedding);
-          } catch (e) {
-            continue;
-          }
-        }
-
-        if (!Array.isArray(storedArray) || storedArray.length !== 128) continue;
-
-        const storedEmbedding = new Float32Array(storedArray);
-        const similarity = cosineSimilarity(liveEmbedding, storedEmbedding);
-
-        if (similarity > bestScore) {
-          bestScore = similarity;
-          bestMatch = emp;
-        }
-      }
-
-      const MIN_SIMILARITY = 0.40;
-
-      if (bestMatch && bestScore > MIN_SIMILARITY) {
-        const detectedName = `${bestMatch.employee_firstName} ${bestMatch.employee_LastName}`;
-        const confidencePercent = Math.round(bestScore * 100);
-        const employeeId = bestMatch.employee_ID;
-
-        // --- Cooldown Logic ---
-        const now = Date.now();
-        if (employeeId === lastFaceIdRef.current && (now - lastScanTimeRef.current < SCAN_COOLDOWN)) {
-          // Still in cooldown for this specific person
+        if (!detection) {
+          setCurrentDetectedName('');
+          setCurrentConfidence(0);
           return;
         }
 
-        // Update tracking
-        lastFaceIdRef.current = employeeId;
-        lastScanTimeRef.current = now;
+        const liveVec = detection.descriptor;
 
-        setCurrentDetectedName(detectedName);
-        setCurrentConfidence(confidencePercent);
+        // Pre-compute live norm once
+        let liveNorm = 0;
+        for (let i = 0; i < 128; i++) liveNorm += liveVec[i] * liveVec[i];
+        liveNorm = Math.sqrt(liveNorm);
 
-        const newUser = {
-          name: detectedName,
-          id: bestMatch.employee_code,
-          department: bestMatch.department_name,
-          role: bestMatch.position,
-          employeeId: bestMatch.employee_ID,
-          photo: null,
-          lastAction: null,
-          similarity: bestScore
-        };
+        // Fast dot-product similarity using pre-built cache
+        let bestEmp = null;
+        let bestScore = -Infinity;
+        const cache = cachedEmbeddingsRef.current;
 
-        if (!recognizedUser || recognizedUser.employeeId !== newUser.employeeId) {
+        for (let c = 0; c < cache.length; c++) {
+          const { emp, vec, norm } = cache[c];
+          let dot = 0;
+          for (let i = 0; i < 128; i++) dot += liveVec[i] * vec[i];
+          const sim = dot / (liveNorm * norm);
+          if (sim > bestScore) { bestScore = sim; bestEmp = emp; }
+        }
+
+        const MIN_SIMILARITY = 0.40;
+
+        if (bestEmp && bestScore > MIN_SIMILARITY) {
+          const detectedName = `${bestEmp.employee_firstName} ${bestEmp.employee_LastName}`;
+          const confidencePercent = Math.round(bestScore * 100);
+          const employeeId = bestEmp.employee_ID;
+
+          const now = Date.now();
+          if (employeeId === lastFaceIdRef.current && (now - lastScanTimeRef.current < SCAN_COOLDOWN)) return;
+
+          lastFaceIdRef.current = employeeId;
+          lastScanTimeRef.current = now;
+
+          setCurrentDetectedName(detectedName);
+          setCurrentConfidence(confidencePercent);
+
+          const newUser = {
+            name: detectedName,
+            id: bestEmp.employee_code,
+            department: bestEmp.department_name,
+            role: bestEmp.position,
+            employeeId: bestEmp.employee_ID,
+            photo: null,
+            lastAction: null,
+            similarity: bestScore
+          };
+
           setRecognizedUser(newUser);
           setRecognitionConfidence(confidencePercent);
-          // Immediately pause scanning when a match is found
           setIsScanning(false);
-          // Automatically trigger attendance marking
           handleMarkAttendance(newUser);
+        } else {
+          setCurrentDetectedName('');
+          setCurrentConfidence(0);
         }
-      } else {
-        setCurrentDetectedName('');
-        setCurrentConfidence(0);
+      } catch (err) {
+        console.error("Recognition error:", err);
       }
-    } catch (err) {
-      console.error("Recognition error:", err);
-    }
-  };
+    };
 
-  const intervalId = setInterval(runRecognition, 280);   // ~3.5 detections/sec
-
-  return () => clearInterval(intervalId);
-}, [cameraActive, modelsLoaded, employees, isScanning]);   // Removed recognizedUser dependency
+    rafId = requestAnimationFrame(runRecognition);
+    return () => { if (rafId) cancelAnimationFrame(rafId); };
+  }, [cameraActive, modelsLoaded, employees, isScanning]);
 
 const startCamera = async () => {
   if (!selectedEvent) {
@@ -684,26 +670,29 @@ const stopCamera = () => {
       };
     }, [recognitionTimer]);
 
-  const selectedEventDetails = getSelectedEventDetails();
-
-  // Cosine Similarity helper (returns value between -1 and 1, higher = more similar)
-  const cosineSimilarity = (vecA, vecB) => {
-    if (!vecA || !vecB) return -1;
-
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-
-    for (let i = 0; i < vecA.length; i++) {
-      dotProduct += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
+  // Pre-build embedding cache whenever employees list is refreshed
+  useEffect(() => {
+    if (!employees.length) { cachedEmbeddingsRef.current = []; return; }
+    const cache = [];
+    for (const emp of employees) {
+      if (!emp.embedding) continue;
+      let arr = emp.embedding;
+      if (typeof arr === 'string') {
+        try { arr = JSON.parse(arr); } catch { continue; }
+      }
+      if (!Array.isArray(arr) || arr.length !== 128) continue;
+      const vec = new Float32Array(arr);
+      // Pre-compute norm so similarity is just a dot product + one division
+      let norm = 0;
+      for (let i = 0; i < 128; i++) norm += vec[i] * vec[i];
+      norm = Math.sqrt(norm);
+      cache.push({ emp, vec, norm });
     }
+    cachedEmbeddingsRef.current = cache;
+    console.log(`✅ Embedding cache built: ${cache.length} employees`);
+  }, [employees]);
 
-    if (normA === 0 || normB === 0) return 0;
-
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-  };
+  const selectedEventDetails = getSelectedEventDetails();
 
   return (
     <div className="app-container" style={{
@@ -719,7 +708,6 @@ const stopCamera = () => {
             src={branding.logo} 
             alt="Institution Logo" 
             className="logo"
-            style={{ borderRadius: '50%', objectFit: 'cover' }}
           />
         ) : (
           <img 
@@ -735,13 +723,12 @@ const stopCamera = () => {
           src={`${process.env.PUBLIC_URL}/CCSlogo.png`} 
           alt="CCS Logo" 
           className="logo"
-          style={{ width: '200px', height: '200px' }}
         />
       </div>
 
-      <Container fluid className="main-content px-4">
-        <Row className="justify-content-center">
-          <Col xs={12} lg={11} xl={10} xxl={9}>
+      <Container fluid className="main-content px-3" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <Row className="justify-content-center" style={{ flex: 1, minHeight: 0 }}>
+          <Col xs={12} lg={11} xl={10} xxl={9} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             {/* Removed Institution Name Branding Header as per request */}
 
             {/* Date and Time Display */}
@@ -753,396 +740,443 @@ const stopCamera = () => {
               </Card.Body>
             </Card>
 
-            <Card className="event-card shadow-lg">
-              <Card.Body>
-                <h5 className="mb-2 fw-bold">
-                  <i className="bi bi-calendar-event me-2 text-success"></i>
-                  Select Event
-                </h5>
+            {/* ── THREE-COLUMN SCANNER LAYOUT ── */}
+            {/* Left: Camera | Top-Right: Select Event | Bottom-Right: Detected Profile */}
+            <div className="scanner-three-col-layout">
 
-                <Form.Group className="mb-2">
-                  <Form.Select 
-                    size="lg"
-                    value={selectedEvent}
-                    onChange={(e) => setSelectedEvent(e.target.value)}
-                    className="event-selector"
-                  >
-                    <option value="">Choose an event...</option>
-                    {availableEvents.map(event => (
-                      <option key={event.id} value={event.id}>
-                        {event.name} - {event.time}
-                      </option>
-                    ))}
-                  </Form.Select>
-                </Form.Group>
+              {/* ── LEFT: Camera / Input Side ── */}
+              <Card className="camera-card shadow-lg scanner-left-panel scanner-left-tall" style={{ display: 'flex', flexDirection: 'column' }}>
+                <Card.Body style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
 
-                {selectedEventDetails && (
-                  <Card className="border event-detail-card">
-                    <Card.Header 
-                      className="event-header d-flex align-items-center cursor-pointer"
-                      onClick={() => setEventExpanded(!eventExpanded)}
-                    >
-                      <Badge 
-                        bg={selectedEventDetails.type === 'Flag' ? 'success' : 
-                            selectedEventDetails.type === 'Meeting' ? 'primary' : 'info'} 
-                        className="me-2"
+                  <div className="d-flex align-items-center justify-content-between mb-2">
+                    <h5 className="mb-0 fw-bold" style={{ color: "white" }}>
+                      {manualMode ? (
+                        <><i className="bi bi-keyboard me-2 text-warning"></i>Manual ID Entry</>
+                      ) : qrMode ? (
+                        <><i className="bi bi-qr-code-scan me-2 text-info"></i>QR Code Scan</>
+                      ) : (
+                        <><i className="bi bi-camera-video me-2 text-primary"></i>Face Recognition</>
+                      )}
+                    </h5>
+
+                    <div className="d-flex flex-column gap-2 align-items-end">
+                      <button
+                        className={`camera-fallback-toggle ${manualMode ? 'toggle-active' : ''}`}
+                        onClick={() => {
+                          if (manualMode) {
+                            handleExitManualMode();
+                          } else {
+                            stopCamera();
+                            stopQrScanner();
+                            setManualMode(true);
+                          }
+                        }}
+                        title={manualMode ? 'Switch back to camera' : 'Camera down? Use ID instead'}
                       >
-                        {selectedEventDetails.type}
-                      </Badge>
-                      <span className="flex-grow-1 fw-semibold">{selectedEventDetails.name}</span>
-                      <span className="text-muted me-2">({selectedEventDetails.time})</span>
-                      <i className={`bi bi-chevron-${eventExpanded ? 'up' : 'down'}`}></i>
-                    </Card.Header>
-                    {eventExpanded && (
-                      <Card.Body className="event-details">
-                        <h6 className="text-success fw-bold mb-2">{selectedEventDetails.name}</h6>
-                        <p className="mb-2">
-                          <i className="bi bi-info-circle me-2"></i>
-                          {selectedEventDetails.description}
-                        </p>
-                        <div className="d-flex gap-3 text-muted small">
-                          <span>
-                            <i className="bi bi-clock me-1"></i>
-                            {selectedEventDetails.time}
-                          </span>
-                          <span>
-                            <i className="bi bi-calendar-check me-1"></i>
-                            {formatDate(currentTime)}
-                          </span>
+                        {manualMode
+                          ? <><i className="bi bi-camera-video"></i> Use Camera</>
+                          : <><i className="bi bi-keyboard"></i> Camera Down?</>}
+                      </button>
+                      <button
+                        className={`camera-fallback-toggle ${qrMode ? 'toggle-active' : ''}`}
+                        onClick={() => {
+                          if (qrMode) {
+                            stopQrScanner();
+                          } else {
+                            startQrScanner();
+                          }
+                        }}
+                      >
+                        {qrMode
+                          ? <><i className="bi bi-camera-video"></i> Use Camera</>
+                          : <><i className="bi bi-qr-code-scan"></i> Scan QR Code</>}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ── SCAN MODE LABEL ── */}
+                  {selectedEvent && (
+                    <div className="text-center mb-2">
+                      {(() => {
+                        const savedMode = localStorage.getItem(`attendanceMode_${selectedEvent}`);
+                        const effectiveMode = savedMode || selectedEventDetails?.scanMode || 'check_in';
+                        const isCheckOut = effectiveMode === 'checkout' || effectiveMode === 'check_out';
+                        
+                        return (
+                          <div className={`scan-mode-indicator ${isCheckOut ? 'mode-checkout' : 'mode-checkin'}`}>
+                            <i className={`bi bi-${isCheckOut ? 'box-arrow-right' : 'box-arrow-in-right'} me-2`}></i>
+                            {isCheckOut ? 'CHECK OUT MODE ACTIVE' : 'CHECK IN MODE ACTIVE'}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* ── CAMERA VIEW — always rendered, hidden when in other modes ── */}
+                  <div style={{ display: (manualMode || qrMode) ? 'none' : 'flex', flexDirection: 'column', flex: 1 }}>
+                    <div className="camera-video-container-small" style={{ position: 'relative', flex: 1 }}>
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          backgroundColor: '#000',
+                          display: cameraActive ? 'block' : 'none',
+                          borderRadius: '12px'
+                        }}
+                      />
+
+                      {/* Placeholder when camera is off */}
+                      {!cameraActive && (
+                        <div className="camera-placeholder">
+                          <i className="bi bi-camera camera-icon-large"></i>
+                          <h4 className="mt-3 fw-bold">Camera Ready</h4>
+                          <p className="text-muted">Click "Scan Face" to begin</p>
                         </div>
-                      </Card.Body>
-                    )}
-                  </Card>
-                )}
-              </Card.Body>
-            </Card>
+                      )}
 
-            <Card className="camera-card shadow-lg">
-              <Card.Body>
-
-                <div className="d-flex align-items-center justify-content-between mb-3">
-                  <h5 className="mb-0 fw-bold" style={{ color: "white" }}>
-                    {manualMode ? (
-                      <><i className="bi bi-keyboard me-2 text-warning"></i>Manual ID Entry</>
-                    ) : qrMode ? (
-                      <><i className="bi bi-qr-code-scan me-2 text-info"></i>QR Code Scan</>
-                    ) : (
-                      <><i className="bi bi-camera-video me-2 text-primary"></i>Face Recognition</>
-                    )}
-                  </h5>
-
-                  <div className="d-flex flex-column gap-2 align-items-end">
-                    <button
-                      className={`camera-fallback-toggle ${manualMode ? 'toggle-active' : ''}`}
-                      onClick={() => {
-                        if (manualMode) {
-                          handleExitManualMode();
-                        } else {
-                          stopCamera();
-                          stopQrScanner();
-                          setManualMode(true);
-                        }
-                      }}
-                      title={manualMode ? 'Switch back to camera' : 'Camera down? Use ID instead'}
-                    >
-                      {manualMode
-                        ? <><i className="bi bi-camera-video"></i> Use Camera</>
-                        : <><i className="bi bi-keyboard"></i> Camera Down?</>}
-                    </button>
-                    <button
-                      className={`camera-fallback-toggle ${qrMode ? 'toggle-active' : ''}`}
-                      onClick={() => {
-                        if (qrMode) {
-                          stopQrScanner();
-                        } else {
-                          startQrScanner();
-                        }
-                      }}
-                    >
-                      {qrMode
-                        ? <><i className="bi bi-camera-video"></i> Use Camera</>
-                        : <><i className="bi bi-qr-code-scan"></i> Scan QR Code</>}
-                    </button>
-                  </div>
-                </div>
-
-                {/* ── SCAN MODE LABEL ── */}
-                {selectedEvent && (
-                  <div className="text-center mb-3">
-                    {(() => {
-                      const savedMode = localStorage.getItem(`attendanceMode_${selectedEvent}`);
-                      const effectiveMode = savedMode || selectedEventDetails?.scanMode || 'check_in';
-                      const isCheckOut = effectiveMode === 'checkout' || effectiveMode === 'check_out';
-                      
-                      return (
-                        <div className={`scan-mode-indicator ${isCheckOut ? 'mode-checkout' : 'mode-checkin'}`}>
-                          <i className={`bi bi-${isCheckOut ? 'box-arrow-right' : 'box-arrow-in-right'} me-2`}></i>
-                          {isCheckOut ? 'CHECK OUT MODE ACTIVE' : 'CHECK IN MODE ACTIVE'}
+                      {/* Live Detection Overlay Box */}
+                      {cameraActive && currentDetectedName && (
+                        <div style={{
+                          position: 'absolute',
+                          bottom: '20px',
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          background: 'rgba(0, 0, 0, 0.88)',
+                          color: '#fff',
+                          padding: '12px 20px',
+                          borderRadius: '10px',
+                          fontSize: '15.5px',
+                          fontWeight: '600',
+                          textAlign: 'center',
+                          zIndex: 200,
+                          minWidth: '240px',
+                          boxShadow: '0 6px 20px rgba(0,0,0,0.6)',
+                          border: '2px solid rgba(255,255,255,0.2)'
+                        }}>
+                          <div style={{ marginBottom: '4px', opacity: 0.9 }}>👤 Detecting</div>
+                          <div style={{ fontSize: '17px', fontWeight: '700' }}>
+                            {currentDetectedName}
+                          </div>
+                          <div style={{ 
+                            fontSize: '13.5px', 
+                            marginTop: '4px',
+                            color: currentConfidence > 75 ? '#4ade80' : '#fbbf24' 
+                          }}>
+                            Confidence: {currentConfidence}%
+                          </div>
                         </div>
-                      );
-                    })()}
-                  </div>
-                )}
+                      )}
 
-                {/* ── CAMERA MODE ── */}
-{!manualMode && !qrMode && (
-  <>
-    <div className="camera-video-container-small" style={{ position: 'relative' }}>
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          backgroundColor: '#000',
-          display: cameraActive ? 'block' : 'none',
-          borderRadius: '12px'
-        }}
-      />
-
-      {/* Placeholder when camera is off */}
-      {!cameraActive && (
-        <div className="camera-placeholder">
-          <i className="bi bi-camera camera-icon-large"></i>
-          <h4 className="mt-3 fw-bold">Camera Ready</h4>
-          <p className="text-muted">Click "Scan Face" to begin</p>
-        </div>
-      )}
-
-      {/* Live Detection Overlay Box - Shows who is being detected */}
-      {cameraActive && currentDetectedName && (
-        <div style={{
-          position: 'absolute',
-          bottom: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'rgba(0, 0, 0, 0.88)',
-          color: '#fff',
-          padding: '12px 20px',
-          borderRadius: '10px',
-          fontSize: '15.5px',
-          fontWeight: '600',
-          textAlign: 'center',
-          zIndex: 200,
-          minWidth: '240px',
-          boxShadow: '0 6px 20px rgba(0,0,0,0.6)',
-          border: '2px solid rgba(255,255,255,0.2)'
-        }}>
-          <div style={{ marginBottom: '4px', opacity: 0.9 }}>👤 Detecting</div>
-          <div style={{ fontSize: '17px', fontWeight: '700' }}>
-            {currentDetectedName}
-          </div>
-          <div style={{ 
-            fontSize: '13.5px', 
-            marginTop: '4px',
-            color: currentConfidence > 75 ? '#4ade80' : '#fbbf24' 
-          }}>
-            Confidence: {currentConfidence}%
-          </div>
-        </div>
-      )}
-
-      {/* Camera Active Indicator */}
-      {cameraActive && !currentDetectedName && (
-        <div style={{
-          position: 'absolute',
-          top: 10,
-          left: 10,
-          background: 'rgba(0,0,0,0.75)',
-          color: '#0f0',
-          padding: '5px 10px',
-          borderRadius: '6px',
-          fontSize: '12px',
-          zIndex: 100,
-          pointerEvents: 'none'
-        }}>
-          Camera Active ✓
-        </div>
-      )}
-    </div>
-
-    {/* Camera Control Buttons - Always visible when camera can be used */}
-{!manualMode && (
-  <div className="d-grid mt-3 gap-2">
-    {/* Main Scan / Stop Camera Button */}
-    <Button
-      variant={cameraActive ? 'danger' : 'success'}
-      size="lg"
-      onClick={cameraActive ? stopCamera : startCamera}
-      disabled={!selectedEvent}
-    >
-      <i className={`bi bi-${cameraActive ? 'camera-video-off' : 'camera-video'} me-2`}></i>
-      {cameraActive ? 'Stop Camera' : 'Scan Face'}
-    </Button>
-
-    {/* Optional: "Scan Different Face" button when someone is already recognized */}
-    {cameraActive && recognizedUser && (
-      <Button
-        variant="outline-secondary"
-        size="lg"
-        onClick={handleScanDifferentFace}
-      >
-        <i className="bi bi-arrow-repeat me-2"></i>
-        Scan Different Face
-      </Button>
-    )}
-  </div>
-)}
-  </>
-)}
-
-                {/* ── QR CODE MODE ── */}
-                {qrMode && !recognizedUser && (
-                  <div className="qr-scanner-section text-center">
-                    <div id="qr-reader" style={{ width: '100%', maxWidth: '500px', margin: '0 auto', borderRadius: '12px', overflow: 'hidden' }}></div>
-                    <p className="text-muted mt-3">Position employee QR code within the frame</p>
-                    <Button variant="danger" className="mt-2" onClick={stopQrScanner}>
-                      Stop QR Scanner
-                    </Button>
-                  </div>
-                )}
-                {/* ── MANUAL ID MODE  */}
-                {manualMode && !recognizedUser && (
-                  <div className="manual-id-section">
-                    <div className="manual-id-display-wrapper">
-                      <div className="manual-id-label">
-                        <i className="bi bi-person-badge me-2"></i>Employee ID
-                      </div>
-                      <div className={`manual-id-display ${manualError ? 'manual-id-error' : ''}`}>
-                        {manualId || <span className="manual-id-placeholder">e.g. 230000123</span>}
-                      </div>
-                      {manualError && (
-                        <div className="manual-error-msg">
-                          <i className="bi bi-exclamation-circle me-1"></i>{manualError}
+                      {/* Camera Active Indicator */}
+                      {cameraActive && !currentDetectedName && (
+                        <div style={{
+                          position: 'absolute',
+                          top: 10,
+                          left: 10,
+                          background: 'rgba(0,0,0,0.75)',
+                          color: '#0f0',
+                          padding: '5px 10px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          zIndex: 100,
+                          pointerEvents: 'none'
+                        }}>
+                          Camera Active ✓
                         </div>
                       )}
                     </div>
 
-                    {/* Number keypad */}
-                    <div className="manual-keypad">
-                      {['1','2','3','4','5','6','7','8','9','C','0','⌫'].map((key, i) => (
-                        <button
-                          key={i}
-                          className={`manual-key ${key === 'C' ? 'manual-key-clear' : ''} ${key === '⌫' ? 'manual-key-back' : ''}`}
-                          onClick={() => {
-                            if (key === '⌫') handleManualBackspace();
-                            else if (key === 'C') handleManualClear();
-                            else handleManualIdKey(key);
-                          }}
+                    <div className="d-grid mt-3 gap-2">
+                      <Button
+                        variant={cameraActive ? 'danger' : 'success'}
+                        size="lg"
+                        onClick={cameraActive ? stopCamera : startCamera}
+                        disabled={!selectedEvent}
+                      >
+                        <i className={`bi bi-${cameraActive ? 'camera-video-off' : 'camera-video'} me-2`}></i>
+                        {cameraActive ? 'Stop Camera' : 'Scan Face'}
+                      </Button>
+
+                      {cameraActive && recognizedUser && (
+                        <Button
+                          variant="outline-secondary"
+                          size="lg"
+                          onClick={handleScanDifferentFace}
                         >
-                          {key}
-                        </button>
-                      ))}
+                          <i className="bi bi-arrow-repeat me-2"></i>
+                          Scan Different Face
+                        </Button>
+                      )}
                     </div>
-
-                    {/* Also allow dash for formatted IDs */}
-                    <div className="manual-keypad-extra">
-                      <button className="manual-key manual-key-dash" onClick={() => handleManualIdKey('-')}>—</button>
-                    </div>
-
-                    <Button
-                      variant="success"
-                      size="lg"
-                      className="w-100 mt-3 camera-control-btn"
-                      onClick={handleManualSearch}
-                      disabled={!selectedEvent || !manualId.trim()}
-                    >
-                      <i className="bi bi-search me-2"></i>
-                      Find Employee
-                    </Button>
-                    {!selectedEvent && (
-                      <small className="text-danger text-center d-block mt-2">
-                        <i className="bi bi-exclamation-circle me-1"></i>
-                        Please select an event first
-                      </small>
-                    )}
                   </div>
-                )}
 
-                {/* ── RECOGNIZED / FOUND USER CARD ── */}
-                {recognizedUser && (
-                  <Card className="user-recognition-card border-0 bg-light mt-3">
-                    <Card.Body className="p-4">
+                  {/* ── QR CODE MODE ── */}
+                  {qrMode && !recognizedUser && (
+                    <div className="qr-scanner-section text-center">
+                      <div id="qr-reader" style={{ width: '100%', maxWidth: '500px', margin: '0 auto', borderRadius: '12px', overflow: 'hidden' }}></div>
+                      <p className="text-muted mt-3">Position employee QR code within the frame</p>
+                      <Button variant="danger" className="mt-2" onClick={stopQrScanner}>
+                        Stop QR Scanner
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* ── MANUAL ID MODE ── */}
+                  {manualMode && !recognizedUser && (
+                    <div className="manual-id-section">
+                      <div className="manual-id-display-wrapper">
+                        <div className="manual-id-label">
+                          <i className="bi bi-person-badge me-2"></i>Employee ID
+                        </div>
+                        <div className={`manual-id-display ${manualError ? 'manual-id-error' : ''}`}>
+                          {manualId || <span className="manual-id-placeholder">e.g. 230000123</span>}
+                        </div>
+                        {manualError && (
+                          <div className="manual-error-msg">
+                            <i className="bi bi-exclamation-circle me-1"></i>{manualError}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="manual-keypad">
+                        {['1','2','3','4','5','6','7','8','9','C','0','⌫'].map((key, i) => (
+                          <button
+                            key={i}
+                            className={`manual-key ${key === 'C' ? 'manual-key-clear' : ''} ${key === '⌫' ? 'manual-key-back' : ''}`}
+                            onClick={() => {
+                              if (key === '⌫') handleManualBackspace();
+                              else if (key === 'C') handleManualClear();
+                              else handleManualIdKey(key);
+                            }}
+                          >
+                            {key}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="manual-keypad-extra">
+                        <button className="manual-key manual-key-dash" onClick={() => handleManualIdKey('-')}>—</button>
+                      </div>
+
+                      <Button
+                        variant="success"
+                        size="lg"
+                        className="w-100 mt-3 camera-control-btn"
+                        onClick={handleManualSearch}
+                        disabled={!selectedEvent || !manualId.trim()}
+                      >
+                        <i className="bi bi-search me-2"></i>
+                        Find Employee
+                      </Button>
+                      {!selectedEvent && (
+                        <small className="text-danger text-center d-block mt-2">
+                          <i className="bi bi-exclamation-circle me-1"></i>
+                          Please select an event first
+                        </small>
+                      )}
+                    </div>
+                  )}
+
+                </Card.Body>
+              </Card>
+
+              {/* ── RIGHT COLUMN: Event (top) + Detected Profile (bottom) ── */}
+              <div className="scanner-right-column">
+
+                {/* ── TOP-RIGHT: Select Event ── */}
+                <Card className="camera-card shadow-lg scanner-right-top-panel">
+                  <Card.Body>
+                    <h6 className="mb-1 fw-bold" style={{ fontSize: '13px' }}>
+                      <i className="bi bi-calendar-event me-2 text-success"></i>
+                      Select Event
+                    </h6>
+
+                    <Form.Group className="mb-1">
+                      <Form.Select 
+                        value={selectedEvent}
+                        onChange={(e) => setSelectedEvent(e.target.value)}
+                        className="event-selector"
+                      >
+                        <option value="">Choose an event...</option>
+                        {availableEvents.map(event => (
+                          <option key={event.id} value={event.id}>
+                            {event.name} - {event.time}
+                          </option>
+                        ))}
+                      </Form.Select>
+                    </Form.Group>
+
+                    {selectedEventDetails && (
+                      <Card className="border event-detail-card">
+                        <Card.Header 
+                          className="event-header d-flex align-items-center cursor-pointer"
+                          onClick={() => setEventExpanded(!eventExpanded)}
+                        >
+                          <Badge 
+                            bg={selectedEventDetails.type === 'Flag' ? 'success' : 
+                                selectedEventDetails.type === 'Meeting' ? 'primary' : 'info'} 
+                            className="me-2"
+                          >
+                            {selectedEventDetails.type}
+                          </Badge>
+                          <span className="flex-grow-1 fw-semibold">{selectedEventDetails.name}</span>
+                          <span className="text-muted me-2">({selectedEventDetails.time})</span>
+                          <i className={`bi bi-chevron-${eventExpanded ? 'up' : 'down'}`}></i>
+                        </Card.Header>
+                        {eventExpanded && (
+                          <Card.Body className="event-details">
+                            <h6 className="text-success fw-bold mb-2">{selectedEventDetails.name}</h6>
+                            <p className="mb-2">
+                              <i className="bi bi-info-circle me-2"></i>
+                              {selectedEventDetails.description}
+                            </p>
+                            <div className="d-flex gap-3 text-muted small">
+                              <span>
+                                <i className="bi bi-clock me-1"></i>
+                                {selectedEventDetails.time}
+                              </span>
+                              <span>
+                                <i className="bi bi-calendar-check me-1"></i>
+                                {formatDate(currentTime)}
+                              </span>
+                            </div>
+                          </Card.Body>
+                        )}
+                      </Card>
+                    )}
+                  </Card.Body>
+                </Card>
+
+                {/* ── BOTTOM-RIGHT: Detected Profile ── */}
+                <Card className="camera-card shadow-lg scanner-right-panel scanner-right-bottom-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+                <Card.Body className="d-flex flex-column" style={{ overflow: 'hidden', minHeight: 0 }}>
+                  <h5 className="mb-2 fw-bold" style={{ color: "white", fontSize: '14px' }}>
+                    <i className="bi bi-person-lines-fill me-2 text-success"></i>
+                    Detected Profile
+                  </h5>
+
+                  {!recognizedUser ? (
+                    /* ── Awaiting Detection State ── */
+                    <div className="detected-profile-awaiting flex-grow-1 d-flex flex-column align-items-center justify-content-center" style={{ minHeight: 0, overflow: 'hidden' }}>
+                      <div className="awaiting-avatar-circle mb-3">
+                        <i className="bi bi-person-bounding-box"></i>
+                      </div>
+                      <h5 className="fw-semibold text-muted mb-2">Awaiting Detection</h5>
+                      <p className="text-muted text-center small px-3">
+                        Start the camera and position your face in front of the scanner. The detected employee will appear here.
+                      </p>
+                      <div className="awaiting-dots mt-2">
+                        <span></span><span></span><span></span>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ── Employee Identified State ── */
+                    <div className="detected-profile-found flex-grow-1 d-flex flex-column">
                       <div className="text-center mb-3">
                         <Badge bg="success" className="px-3 py-2 fs-6">
-                          Face Detected
+                          <i className="bi bi-check-circle me-1"></i>Employee Identified
                         </Badge>
                       </div>
 
-                      <div className="d-flex align-items-start mb-4 pb-3 border-bottom">
-                        <div className="user-avatar-circle me-3">
+                      <div className="text-center mb-4">
+                        <div className="user-avatar-circle mx-auto mb-2">
                           <i className="bi bi-person-fill"></i>
                         </div>
-                        <div className="flex-grow-1">
-                          <h4 className="mb-2 fw-bold">{recognizedUser.name}</h4>
-                          <div className="text-muted mb-2 fs-6">
-                            <i className="bi bi-person-badge me-1"></i>
-                            {recognizedUser.id}
-                          </div>
-                          <div className="d-flex align-items-center mb-2">
-                            <i className="bi bi-geo-alt-fill text-success me-2"></i>
-                            <span className="text-success">{recognizedUser.department}</span>
-                          </div>
-                          <Badge bg="info" className="px-3 py-1">{recognizedUser.role}</Badge>
-                        </div>
+                        <h4 className="fw-bold mb-0">{recognizedUser.name}</h4>
                       </div>
 
-                      {/* Confidence Indicator */}
-                      <div className="mb-3 text-center">
-                        <small className="text-muted">Match Confidence: </small>
-                        <strong className={recognitionConfidence > 70 ? 'text-success' : 'text-warning'}>
-                          {recognitionConfidence}%
-                        </strong>
+                      <div className="detected-profile-details mb-3">
+                        <div className="profile-detail-row">
+                          <div className="profile-detail-icon text-success">
+                            <i className="bi bi-person-badge"></i>
+                          </div>
+                          <div>
+                            <div className="profile-detail-label">EMPLOYEE NUMBER</div>
+                            <div className="profile-detail-value">{recognizedUser.id}</div>
+                          </div>
+                        </div>
+
+                        <div className="profile-detail-row">
+                          <div className="profile-detail-icon text-success">
+                            <i className="bi bi-briefcase"></i>
+                          </div>
+                          <div>
+                            <div className="profile-detail-label">POSITION</div>
+                            <div className="profile-detail-value">{recognizedUser.role || '—'}</div>
+                          </div>
+                        </div>
+
+                        <div className="profile-detail-row">
+                          <div className="profile-detail-icon text-success">
+                            <i className="bi bi-building"></i>
+                          </div>
+                          <div>
+                            <div className="profile-detail-label">DEPARTMENT</div>
+                            <div className="profile-detail-value">{recognizedUser.department || '—'}</div>
+                          </div>
+                        </div>
+
+                        <div className="profile-detail-row">
+                          <div className="profile-detail-icon" style={{ color: recognitionConfidence > 70 ? '#28a745' : '#ffc107' }}>
+                            <i className="bi bi-graph-up"></i>
+                          </div>
+                          <div>
+                            <div className="profile-detail-label">MATCH CONFIDENCE</div>
+                            <div className="profile-detail-value" style={{ color: recognitionConfidence > 70 ? '#28a745' : '#ffc107' }}>
+                              {recognitionConfidence}%
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
                       {selectedEventDetails && (
-                        <div className="alert alert-info mb-3" role="alert">
-                          <i className="bi bi-calendar-check me-2"></i>
-                          <strong>Event:</strong> {selectedEventDetails.name}
+                        <div className="detected-event-badge mb-3">
+                          <i className="bi bi-calendar-check me-2 text-success"></i>
+                          <strong>Event:</strong>&nbsp;{selectedEventDetails.name}
                         </div>
                       )}
 
-                      <div className="d-grid">
+                      <div className="mt-auto d-grid">
                         <Button
                           variant="outline-secondary"
                           size="lg"
                           onClick={() => {
-                              setRecognizedUser(null);
-                              setRecognitionConfidence(0);
-                              setCurrentDetectedName('');
-                              setCurrentConfidence(0);
-                              setIsScanning(true);        // ← Resume scanning
-                            }}
+                            setRecognizedUser(null);
+                            setRecognitionConfidence(0);
+                            setCurrentDetectedName('');
+                            setCurrentConfidence(0);
+                            setIsScanning(true);
+                          }}
                         >
                           <i className="bi bi-arrow-repeat me-2"></i>
                           Scan Different Face
                         </Button>
                       </div>
-                    </Card.Body>
-                  </Card>
-                )}
-              </Card.Body>
-            </Card>
+                    </div>
+                  )}
 
-            {/* Instructions */}
-            <Card className="instructions-card shadow-lg">
-              <Card.Body>
-                <h5 className="mb-2 fw-bold">
-                  <i className="bi bi-info-circle me-2 text-primary"></i>
-                  Instructions
-                </h5>
-                <ol className="mb-0 fs-6">
-                  <li className="mb-1">Select an event from the dropdown menu above</li>
-                  <li className="mb-1">Click <strong>"Scan Face"</strong> to activate face recognition</li>
-                  <li className="mb-1">Position your face clearly in front of the camera</li>
-                  <li className="mb-1">System will recognize your face automatically</li>
-                  <li className="mb-1">Verify the event shown is correct</li>
-                </ol>
-              </Card.Body>
-            </Card>
+                  {/* Instructions */}
+                  <div className="detected-profile-instructions mt-3 pt-3" style={{ borderTop: '1px solid #e9ecef' }}>
+                    <p className="mb-1 fw-bold small">
+                      <i className="bi bi-info-circle me-1 text-primary"></i>Instructions
+                    </p>
+                    <ol className="mb-0 ps-3" style={{ fontSize: '12px', color: '#666' }}>
+                      <li>Select an event above</li>
+                      <li>Click <strong>"Scan Face"</strong> to activate camera</li>
+                      <li>Position your face in front of the camera</li>
+                      <li>Profile will appear here automatically</li>
+                    </ol>
+                  </div>
+                </Card.Body>
+              </Card>
+
+              </div>{/* end scanner-right-column */}
+            </div>{/* end scanner-three-col-layout */}
           </Col>
         </Row>
       </Container>
