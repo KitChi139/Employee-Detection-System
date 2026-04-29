@@ -7,7 +7,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 
 const API_BASE_URL =
   process.env.REACT_APP_API_URL ||
-  "http://localhost/EMP/Employee-Detection-System/facial_attendance_api/controllers";
+  "http://localhost/Emp/latest/Employee-Detection-System/facial_attendance_api/controllers";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -396,6 +396,19 @@ export const deleteLocation = async (id) => {
 export const getEmailsList = async () => {
   try {
     const { data } = await api.get("/email.php");
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+export const sendQRCodeEmail = async ({ email, qr_code, employee_name }) => {
+  try {
+    const { data } = await api.post("/send_qr_email.php", {
+      email,
+      qr_code,
+      employee_name,
+    });
     return data;
   } catch (error) {
     handleError(error);

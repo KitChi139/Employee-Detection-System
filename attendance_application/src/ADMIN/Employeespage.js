@@ -13,6 +13,7 @@ import {
   getEmailsList,
   getEmployeePhotos,
   saveEmployeePhotos,
+  sendQRCodeEmail,
 } from '../api';
 import './ccs/employee.css';
 
@@ -37,6 +38,8 @@ function EmployeesPage() {
   // ── QR Code modal ──
   const [showQRModal, setShowQRModal] = useState(false);
   const [selectedQRUser, setSelectedQRUser] = useState(null);
+  const [showEmailStatusModal, setShowEmailStatusModal] = useState(false);
+  const [emailStatus, setEmailStatus] = useState({ success: false, message: '' });
 
   const [formData, setFormData] = useState({
     employee_code:      '',
@@ -49,6 +52,7 @@ function EmployeesPage() {
 
   const [saving, setSaving]     = useState(false);
   const [feedback, setFeedback] = useState({ type: '', message: '' });
+  const [emailSending, setEmailSending] = useState(false);
 
   const MAX_SLOTS = 5;
   const [imageSlots, setImageSlots] = useState(Array(MAX_SLOTS).fill(null));
@@ -595,6 +599,38 @@ const closeCamera = () => {
     document.body.removeChild(downloadLink);
   };
 
+  const handleSendEmail = async () => {
+    if (!selectedQRUser?.email) {
+      alert("This employee does not have an email address set.");
+      return;
+    }
+
+    const canvas = document.getElementById('employee-qr-canvas');
+    if (!canvas) return;
+    const qrCodeBase64 = canvas.toDataURL('image/png');
+
+    setEmailSending(true);
+    try {
+      const result = await sendQRCodeEmail({
+        email: selectedQRUser.email,
+        qr_code: qrCodeBase64,
+        employee_name: `${selectedQRUser.employee_firstName} ${selectedQRUser.employee_LastName}`,
+      });
+
+      if (result.success) {
+        setEmailStatus({ success: true, message: 'QR code sent to email successfully!' });
+      } else {
+        setEmailStatus({ success: false, message: result.message || 'Failed to send email.' });
+      }
+      setShowEmailStatusModal(true);
+    } catch (err) {
+      setEmailStatus({ success: false, message: err?.message || 'Failed to send email.' });
+      setShowEmailStatusModal(true);
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
   const confirmArchive = async () => {
     setShowArchiveConfirm(false);
     try {
@@ -1129,7 +1165,7 @@ const closeCamera = () => {
               </div>
               <h5 className="fw-bold mb-1">{selectedQRUser.employee_firstName} {selectedQRUser.employee_LastName}</h5>
               <p className="text-muted small mb-3">{selectedQRUser.employee_code}</p>
-              <div className="d-grid">
+              <div className="d-grid gap-2">
                 <Button 
                   className="btn-emp-qr" 
                   style={{ backgroundColor: '#0d47a1', color: '#fff', border: 'none' }}
@@ -1137,9 +1173,40 @@ const closeCamera = () => {
                 >
                   <i className="bi bi-download me-2"></i>Download PNG
                 </Button>
+                <Button 
+                  variant="primary"
+                  onClick={handleSendEmail}
+                  disabled={emailSending}
+                >
+                  {emailSending ? 'Sending...' : (
+                    <>
+                      <i className="bi bi-envelope me-2"></i>Send to Email
+                    </>
+                  )}
+                </Button>
               </div>
             </>
           )}
+        </Modal.Body>
+      </Modal>
+
+      {/* ── Email Status Modal ── */}
+      <Modal show={showEmailStatusModal} onHide={() => setShowEmailStatusModal(false)} centered size="sm">
+        <Modal.Header closeButton>
+          <Modal.Title>{emailStatus.success ? 'Success' : 'Error'}</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="text-center py-4">
+          <div className="mb-3">
+            {emailStatus.success ? (
+              <i className="bi bi-check-circle-fill text-success" style={{ fontSize: '3rem' }}></i>
+            ) : (
+              <i className="bi bi-exclamation-triangle-fill text-danger" style={{ fontSize: '3rem' }}></i>
+            )}
+          </div>
+          <p>{emailStatus.message}</p>
+          <Button variant="secondary" onClick={() => setShowEmailStatusModal(false)}>
+            Close
+          </Button>
         </Modal.Body>
       </Modal>
 

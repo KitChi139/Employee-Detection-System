@@ -4,3 +4,4 @@
 # Optional: ignore other ML files
 *.pt
 *.h5
+node_modules
