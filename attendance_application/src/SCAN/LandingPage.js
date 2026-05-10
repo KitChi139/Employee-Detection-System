@@ -179,41 +179,52 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   };
 
   useEffect(() => {
-    if (qrMode && !qrScannerRef.current) {
-      const html5QrCode = new Html5Qrcode("qr-reader");
-      qrScannerRef.current = html5QrCode;
+    // Only start if qrMode is ON and NO recognizedUser is currently shown
+    if (qrMode && !recognizedUser && !qrScannerRef.current) {
+      // Small delay to ensure the "qr-reader" div is mounted in DOM
+      const timer = setTimeout(() => {
+        const qrReaderEl = document.getElementById("qr-reader");
+        if (!qrReaderEl) return;
 
-      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        const html5QrCode = new Html5Qrcode("qr-reader");
+        qrScannerRef.current = html5QrCode;
 
-      html5QrCode.start(
-        { facingMode: "user" },
-        config,
-        (decodedText) => {
-          try {
-            const data = JSON.parse(decodedText);
-            if (data.employee_id) {
-              handleQrScan(data);
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+        html5QrCode.start(
+          { facingMode: "user" },
+          config,
+          (decodedText) => {
+            try {
+              const data = JSON.parse(decodedText);
+              if (data.employee_id) {
+                handleQrScan(data);
+              }
+            } catch (e) {
+              console.warn("Invalid QR data:", decodedText);
             }
-          } catch (e) {
-            console.warn("Invalid QR data:", decodedText);
+          },
+          (errorMessage) => {
+            // ignore scan errors
           }
-        },
-        (errorMessage) => {
-          // ignore scan errors
-        }
-      ).catch(err => {
-        console.error("Failed to start QR scanner:", err);
-        setQrMode(false);
-      });
+        ).catch(err => {
+          console.error("Failed to start QR scanner:", err);
+          qrScannerRef.current = null;
+        });
+      }, 300); // 300ms delay to be safe
+
+      return () => clearTimeout(timer);
     }
 
+    // Cleanup: Stop scanner if qrMode is turned off OR if a user is recognized
     return () => {
-      if (qrScannerRef.current && !qrMode) {
-        qrScannerRef.current.stop().catch(err => console.warn(err));
-        qrScannerRef.current = null;
+      if (qrScannerRef.current) {
+        const scanner = qrScannerRef.current;
+        qrScannerRef.current = null; // Clear ref immediately
+        scanner.stop().catch(err => console.warn("Cleanup QR stop error:", err));
       }
     };
-  }, [qrMode]);
+  }, [qrMode, recognizedUser]);
 
   const handleQrScan = (data) => {
     const now = Date.now();
