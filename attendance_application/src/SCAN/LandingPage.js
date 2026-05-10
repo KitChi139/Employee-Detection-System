@@ -342,9 +342,10 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
 
     loadInitialData();
     
-    // Refresh events every 10 seconds to sync with Admin changes
-    const eventTimer = setInterval(async () => {
+    // Refresh events AND employees every 10 seconds to sync with Admin changes
+    const syncTimer = setInterval(async () => {
       try {
+        // 1. Refresh Events
         const eventsData = await getEvents({ archived: 0, is_active: 1 });
         const eventsArr = Array.isArray(eventsData) ? eventsData : (eventsData?.data ?? []);
         if (Array.isArray(eventsArr)) {
@@ -358,12 +359,30 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
           }));
           setAvailableEvents(formattedEvents);
         }
+
+        // 2. Refresh Employees (preserving embeddings)
+        const employeesData = await getEmployees();
+        const empArr = Array.isArray(employeesData) ? employeesData : (employeesData?.data ?? []);
+        const activeEmps = (Array.isArray(empArr) ? empArr : []).filter(e => e.is_archived != 1);
+
+        if (activeEmps.length > 0) {
+          setEmployees(prevEmps => {
+            return activeEmps.map(newEmp => {
+              // Try to find if we already have this employee's embedding
+              const existing = prevEmps.find(p => p.employee_ID === newEmp.employee_ID);
+              if (existing && existing.embedding) {
+                return { ...newEmp, embedding: existing.embedding };
+              }
+              return newEmp;
+            });
+          });
+        }
       } catch (e) {
-        console.warn("Failed to auto-refresh events", e);
+        console.warn("Failed to auto-sync data", e);
       }
     }, 10000);
 
-    return () => clearInterval(eventTimer);
+    return () => clearInterval(syncTimer);
   }, []);
 
 
