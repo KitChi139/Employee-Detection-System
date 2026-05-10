@@ -178,52 +178,41 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   };
 
   useEffect(() => {
-    // Only start if qrMode is ON and NO recognizedUser is currently shown
-    if (qrMode && !recognizedUser && !qrScannerRef.current) {
-      // Small delay to ensure the "qr-reader" div is mounted in DOM
-      const timer = setTimeout(() => {
-        const qrReaderEl = document.getElementById("qr-reader");
-        if (!qrReaderEl) return;
+    if (qrMode && !qrScannerRef.current) {
+      const html5QrCode = new Html5Qrcode("qr-reader");
+      qrScannerRef.current = html5QrCode;
 
-        const html5QrCode = new Html5Qrcode("qr-reader");
-        qrScannerRef.current = html5QrCode;
+      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
 
-        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-
-        html5QrCode.start(
-          { facingMode: "user" },
-          config,
-          (decodedText) => {
-            try {
-              const data = JSON.parse(decodedText);
-              if (data.employee_id) {
-                handleQrScan(data);
-              }
-            } catch (e) {
-              console.warn("Invalid QR data:", decodedText);
+      html5QrCode.start(
+        { facingMode: "user" },
+        config,
+        (decodedText) => {
+          try {
+            const data = JSON.parse(decodedText);
+            if (data.employee_id) {
+              handleQrScan(data);
             }
-          },
-          (errorMessage) => {
-            // ignore scan errors
+          } catch (e) {
+            console.warn("Invalid QR data:", decodedText);
           }
-        ).catch(err => {
-          console.error("Failed to start QR scanner:", err);
-          qrScannerRef.current = null;
-        });
-      }, 300); // 300ms delay to be safe
-
-      return () => clearTimeout(timer);
+        },
+        (errorMessage) => {
+          // ignore scan errors
+        }
+      ).catch(err => {
+        console.error("Failed to start QR scanner:", err);
+        setQrMode(false);
+      });
     }
 
-    // Cleanup: Stop scanner if qrMode is turned off OR if a user is recognized
     return () => {
-      if (qrScannerRef.current) {
-        const scanner = qrScannerRef.current;
-        qrScannerRef.current = null; // Clear ref immediately
-        scanner.stop().catch(err => console.warn("Cleanup QR stop error:", err));
+      if (qrScannerRef.current && !qrMode) {
+        qrScannerRef.current.stop().catch(err => console.warn(err));
+        qrScannerRef.current = null;
       }
     };
-  }, [qrMode, recognizedUser]);
+  }, [qrMode]);
 
   const handleQrScan = (data) => {
     const now = Date.now();
@@ -492,7 +481,7 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
           if (sim > bestScore) { bestScore = sim; bestEmp = emp; }
         }
 
-        const MIN_SIMILARITY = 0.40;
+        const MIN_SIMILARITY = 0.95; // require 95% similarity to confirm
 
         if (bestEmp && bestScore > MIN_SIMILARITY) {
           const detectedName = `${bestEmp.employee_firstName} ${bestEmp.employee_LastName}`;
