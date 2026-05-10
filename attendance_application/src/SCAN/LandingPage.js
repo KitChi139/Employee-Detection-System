@@ -454,6 +454,18 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
           }))
           .withFaceLandmarks()
           .withFaceDescriptor();
+        // const blob = await fetch(videoFrame).then(r => r.blob());
+
+        // const formData = new FormData();
+        // formData.append("file", blob);
+
+        // const res = await fetch("http://localhost:8000/recognize", {
+        //   method: "POST",
+        //   body: formData
+        // });
+
+        // const data = await res.json();
+        // const liveVec = data.embedding;
 
         if (!detection) {
           setCurrentDetectedName('');
