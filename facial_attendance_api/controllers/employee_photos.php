@@ -1,7 +1,7 @@
 <?php
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS, DELETE");
 header("Access-Control-Allow-Headers: Content-Type");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { 
@@ -95,6 +95,26 @@ if ($method === 'GET') {
         if ($conn->inTransaction()) {
             $conn->rollBack();
         }
+        echo json_encode(['error' => true, 'message' => $e->getMessage()]);
+    }
+} elseif ($method === 'DELETE') {
+    $photo_id = intval($_GET['photo_id'] ?? 0);
+
+    if ($photo_id <= 0) {
+        echo json_encode(['error' => true, 'message' => 'Invalid photo ID.']);
+        exit;
+    }
+
+    try {
+        $stmt = $conn->prepare("DELETE FROM employee_photos WHERE photo_ID = ?");
+        $stmt->execute([$photo_id]);
+
+        if ($stmt->rowCount() > 0) {
+            echo json_encode(['success' => true, 'message' => 'Photo deleted successfully.']);
+        } else {
+            echo json_encode(['error' => true, 'message' => 'Photo not found or already deleted.']);
+        }
+    } catch (Exception $e) {
         echo json_encode(['error' => true, 'message' => $e->getMessage()]);
     }
 }

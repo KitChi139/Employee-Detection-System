@@ -14,6 +14,7 @@ import {
   getEmployeePhotos,
   saveEmployeePhotos,
   sendQRCodeEmail,
+  deleteEmployeePhoto
 } from '../api';
 import './ccs/employee.css';
 
@@ -57,6 +58,9 @@ function EmployeesPage() {
   const MAX_SLOTS = 5;
   const [imageSlots, setImageSlots] = useState(Array(MAX_SLOTS).fill(null));
 
+  const autoCaptureTimeoutRef = useRef(null);
+  const isAutoCapturingRef = useRef(false);
+
   const [showCamera, setShowCamera] = useState(false);
   const [cameraSlot, setCameraSlot] = useState(null);
   const videoRef                    = useRef(null);
@@ -66,7 +70,10 @@ function EmployeesPage() {
   const lastReqsUpdateRef = useRef(0);
   const [showCaptureConfirm, setShowCaptureConfirm] = useState(false);
   const [currentCapturingSlot, setCurrentCapturingSlot] = useState(null); // which slot we're filling now
-  const [isCapturingSequence, setIsCapturingSequence] = useState(false);  
+  const [isCapturingSequence, setIsCapturingSequence] = useState(false);
+  const lastDetectionTimeRef = useRef(0);
+  const DETECTION_INTERVAL = 120; // ms (≈ 8 FPS)   
+  
   
 
   // ── Real-time requirement states ──────────────────────────────────────────
@@ -107,6 +114,39 @@ function EmployeesPage() {
   // ── Detection loop — runs every animation frame while camera is open ──────
 const runDetectionLoop = async () => {
   if (!videoRef.current || videoRef.current.readyState < 2) {
+    // ── AUTO CAPTURE LOGIC ──
+    if (isCapturingSequence && allAutoReqsMet && currentCapturingSlot !== null) {
+
+      // Prevent multiple triggers
+      if (!isAutoCapturingRef.current && !autoCaptureTimeoutRef.current) {
+
+        // Wait ~1 second for stability
+        autoCaptureTimeoutRef.current = setTimeout(() => {
+
+          // Double check still valid
+          if (allAutoReqsMet) {
+            isAutoCapturingRef.current = true;
+
+            doCapture();
+
+            // Reset flags after short delay
+            setTimeout(() => {
+              isAutoCapturingRef.current = false;
+            }, 800);
+          }
+
+          autoCaptureTimeoutRef.current = null;
+
+        }, 1000); // ← stability delay (adjust if needed)
+      }
+
+    } else {
+      // Cancel if user moves or invalid
+      if (autoCaptureTimeoutRef.current) {
+        clearTimeout(autoCaptureTimeoutRef.current);
+        autoCaptureTimeoutRef.current = null;
+      }
+    }
     detectionLoopRef.current = requestAnimationFrame(runDetectionLoop);
     return;
   }
@@ -120,12 +160,21 @@ const runDetectionLoop = async () => {
   const rx = vw * 0.32;
   const ry = vh * 0.38;
 
-  try {
-    const detection = await faceapi
-      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ 
-        scoreThreshold: 0.5,     // slightly higher = faster
-        inputSize: 224           // smaller = faster (was default ~ larger)
-      }))
+ const now = Date.now();
+
+if (now - lastDetectionTimeRef.current < DETECTION_INTERVAL) {
+  detectionLoopRef.current = requestAnimationFrame(runDetectionLoop);
+  return;
+}
+
+lastDetectionTimeRef.current = now;
+
+try {
+  const detection = await faceapi
+    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ 
+      scoreThreshold: 0.5,
+      inputSize: 224
+    }))
       .withFaceLandmarks()
       .withFaceExpressions();
 
@@ -356,7 +405,36 @@ const runDetectionLoop = async () => {
     reader.readAsDataURL(file);
   };
 
+  // const handleSlotRemove = (index) => {
+  //   setImageSlots(prev => {
+  //     const updated = [...prev];
+  //     updated[index] = null;
+  //     return updated;
+  //   });
+  // };
+
   const handleSlotRemove = (index) => {
+    const slot = imageSlots[index];
+
+    // If this is an existing photo (from database) and we're editing
+    if (isEditing && slot && slot.photo_ID) {
+      // Optional: Ask for confirmation before deleting from DB
+      if (!window.confirm(`Delete this photo permanently?`)) {
+        return;
+      }
+
+      // Call backend to delete this specific photo
+      deleteEmployeePhoto(slot.photo_ID)
+        .then(() => {
+          console.log(`Photo ${slot.photo_ID} deleted from database`);
+        })
+        .catch(err => {
+          console.error("Failed to delete photo from DB:", err);
+          // Still remove from UI even if DB delete fails (to avoid stuck UI)
+        });
+    }
+
+    // Remove from local state
     setImageSlots(prev => {
       const updated = [...prev];
       updated[index] = null;
@@ -655,6 +733,11 @@ const closeCamera = () => {
     setFeedback({ type, message });
     setTimeout(() => setFeedback({ type: '', message: '' }), 4500);
   };
+  
+  if (document.hidden) {
+  detectionLoopRef.current = requestAnimationFrame(runDetectionLoop);
+  return;
+}
 
   return (
     <div className="admin-page">

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { Container, Row, Col, Card, Button, Badge, Modal, Form } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Badge, Form } from 'react-bootstrap';
 import './LandingPage.css';
 import { getEvents, getEmployees, getEmployeePhotos, markAttendance, getEventSetup } from '../api';
 import LoginPage from './Adminlogin';
@@ -27,7 +27,6 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   const [selectedEvent, setSelectedEvent] = useState('');
   const [eventExpanded, setEventExpanded] = useState(false);
   const [recognizedUser, setRecognizedUser] = useState(null);
-  const [showConfirmation, setShowConfirmation] = useState(false);
   const [attendanceType, setAttendanceType] = useState('');
   const [attendanceStatus, setAttendanceStatus] = useState(null); // 'success' or 'error'
   const [attendanceMsg, setAttendanceMsg] = useState('');
@@ -376,6 +375,8 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
 
   useEffect(() => {
     if (showAdminLogin) {
+      // ensure camera is stopped when admin overlay opens
+      try { stopCamera(); } catch (e) { /* ignore if not available yet */ }
       document.body.classList.add('overlay-active');
     } else {
       document.body.classList.remove('overlay-active');
@@ -591,7 +592,6 @@ const stopCamera = () => {
 
     try {
       setAttendanceStatus('loading');
-      setShowConfirmation(true);
 
       // --- CRITICAL: Refresh event details to get latest scan_mode ---
       const freshEvent = await getEventSetup(selectedEvent);
@@ -615,7 +615,6 @@ const stopCamera = () => {
       
       // Auto close after 3 seconds and reset scanner
       setTimeout(() => {
-        setShowConfirmation(false);
         setAttendanceStatus(null);
         setAttendanceMsg('');
         setRecognizedUser(null);
@@ -632,7 +631,6 @@ const stopCamera = () => {
       
       // Auto close after 4 seconds but let the user see the error
       setTimeout(() => {
-        setShowConfirmation(false);
         setAttendanceStatus(null);
         setAttendanceMsg('');
         setRecognizedUser(null);
@@ -1088,6 +1086,24 @@ const stopCamera = () => {
                           <i className="bi bi-person-fill"></i>
                         </div>
                         <h4 className="fw-bold mb-0">{recognizedUser.name}</h4>
+
+                        {/* Inline attendance status instead of modal */}
+                        {attendanceStatus === 'loading' && (
+                          <div className="text-primary small mt-2">
+                            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Checking in...
+                          </div>
+                        )}
+                        {attendanceStatus === 'success' && (
+                          <div className="text-success small mt-2">
+                            {attendanceMsg || 'Already checked in'}
+                          </div>
+                        )}
+                        {attendanceStatus === 'error' && (
+                          <div className="text-danger small mt-2">
+                            {attendanceMsg || 'Attendance failed'}
+                          </div>
+                        )}
                       </div>
 
                       <div className="detected-profile-details mb-3">
@@ -1181,68 +1197,7 @@ const stopCamera = () => {
         </Row>
       </Container>
 
-      {/* Confirmation Modal */}
-      <Modal 
-        show={showConfirmation} 
-        centered
-        backdrop="static"
-        className={`confirmation-modal ${attendanceStatus === 'error' ? 'error-modal' : ''}`}
-      >
-        <Modal.Body className="text-center py-5">
-          {attendanceStatus === 'loading' && (
-            <div className="py-4">
-              <div className="spinner-border text-primary mb-3" style={{ width: '3rem', height: '3rem' }} role="status">
-                <span className="visually-hidden">Loading...</span>
-              </div>
-              <h3 className="fw-bold">Processing...</h3>
-            </div>
-          )}
-
-          {attendanceStatus === 'success' && (
-            <>
-              <div className="success-icon mb-3">
-                <i className="bi bi-check-circle-fill"></i>
-              </div>
-              <h3 className="mb-3 fw-bold">{attendanceMsg}</h3>
-              <h4 className="text-success mb-2">{recognizedUser?.name}</h4>
-              {selectedEventDetails && (
-                <p className="text-primary mb-2 fs-5">
-                  <i className="bi bi-calendar-event me-2"></i>
-                  {selectedEventDetails.name}
-                </p>
-              )}
-              <p className="text-muted fs-5 mb-0">{formatTime(new Date())}</p>
-              <div className="mt-4">
-                <div className="spinner-border spinner-border-sm text-success" role="status">
-                  <span className="visually-hidden">Processing...</span>
-                </div>
-                <p className="small text-muted mt-2">Returning to camera...</p>
-              </div>
-            </>
-          )}
-
-          {attendanceStatus === 'error' && (
-            <>
-              <div className="error-icon mb-3 text-danger">
-                <i className="bi bi-x-circle-fill" style={{ fontSize: '4rem' }}></i>
-              </div>
-              <h3 className="mb-3 fw-bold text-danger">Attendance Failed</h3>
-              <p className="fs-5 text-muted mb-4">{attendanceMsg}</p>
-              <Button 
-                variant="outline-danger" 
-                onClick={() => {
-                  setShowConfirmation(false);
-                  setAttendanceStatus(null);
-                  setAttendanceMsg('');
-                  setIsScanning(true);
-                }}
-              >
-                Close & Try Again
-              </Button>
-            </>
-          )}
-        </Modal.Body>
-      </Modal>
+      {/* Confirmation modal removed: attendance handled inline in detected profile */}
 
       <link 
         rel="stylesheet" 

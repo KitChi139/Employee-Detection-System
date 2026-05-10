@@ -144,6 +144,15 @@ export const saveEmployeePhotos = async (employeeId, photoItems) => {
   }
 };
 
+export const deleteEmployeePhoto = async (photoId) => {
+  try {
+    const { data } = await api.delete('/employee_photos.php?photo_id=${photoId}');
+    return data;
+  } catch (error) {
+    handleError(error);
+  }
+}
+
 
 // ====================================
 // ATTENDANCE ENDPOINTS
