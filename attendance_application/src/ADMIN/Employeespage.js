@@ -202,11 +202,25 @@ try {
       const faceCY = box.y + box.height / 2;
 
       const faceDetected = true;
-      const faceCentered = Math.abs(faceCX - cx) < vw * 0.10 && Math.abs(faceCY - cy) < vh * 0.10;
+      // Relaxed centering threshold from 10% to 15% for better user experience
+      const faceCentered = Math.abs(faceCX - cx) < vw * 0.15 && Math.abs(faceCY - cy) < vh * 0.15;
 
-      const corners = [ /* your 4 corners */ ];
+      // Use a slightly smaller check-box (80% of face) for the circle constraint 
+      // to avoid failing due to hair or background in the bounding box corners.
+      const checkMargin = 0.20;
+      const cw = box.width * (1 - checkMargin);
+      const ch = box.height * (1 - checkMargin);
+      const cx_box = box.x + (box.width * checkMargin) / 2;
+      const cy_box = box.y + (box.height * checkMargin) / 2;
+
+      const corners = [
+        [cx_box, cy_box],
+        [cx_box + cw, cy_box],
+        [cx_box, cy_box + ch],
+        [cx_box + cw, cy_box + ch]
+      ];
       const faceInsideCircle = corners.every(([px, py]) =>
-        ((px - cx) ** 2) / (rx ** 2) + ((py - cy) ** 2) / (ry ** 2) <= 1
+        ((px - cx) ** 2) / (rx ** 2) + ((py - cy) ** 2) / (ry ** 2) <= 1.05 // 5% extra tolerance
       );
 
       const fullFaceVisible = box.x > 0 && box.y > 0 &&
@@ -499,6 +513,12 @@ const doCapture = async () => {
   try {
     if (!videoRef.current) return;
 
+    // 1. Pause the detection loop to free up resources for descriptor calculation
+    if (detectionLoopRef.current) {
+      cancelAnimationFrame(detectionLoopRef.current);
+      detectionLoopRef.current = null;
+    }
+
     // Quick canvas capture
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
@@ -506,23 +526,25 @@ const doCapture = async () => {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(videoRef.current, 0, 0);
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-
-    // Extract embedding BEFORE showing in slot (prevents bad photos)
-    const img = await faceapi.fetchImage(dataUrl);
+    // 2. Use the canvas directly instead of converting to DataURL first.
+    // Also using a slightly smaller inputSize (224) to match the loop's speed.
     const detection = await faceapi
-      .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ 
+      .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ 
         scoreThreshold: 0.5, 
-        inputSize: 256 
+        inputSize: 224 
       }))
       .withFaceLandmarks()
       .withFaceDescriptor();
 
     if (!detection) {
       alert("⚠️ No face was detected in the captured photo.\n\nPlease try again with better lighting and positioning.");
+      // Restart loop if capture failed
+      detectionLoopRef.current = requestAnimationFrame(runDetectionLoop);
       return;
     }
 
+    // Only generate the preview DataURL after we know the detection succeeded
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
     const embedding = Array.from(detection.descriptor);
 
     // Save to slot
@@ -542,6 +564,8 @@ const doCapture = async () => {
     if (nextSlot !== -1) {
       setCurrentCapturingSlot(nextSlot);
       setReqs(defaultReqs);
+      // Restart loop for next slot
+      detectionLoopRef.current = requestAnimationFrame(runDetectionLoop);
     } else {
       setTimeout(() => {
         closeCamera();
@@ -552,6 +576,10 @@ const doCapture = async () => {
   } catch (err) {
     console.error("Capture failed:", err);
     alert("Failed to process photo. Please try again.");
+    // Ensure loop restarts on error if camera is still supposed to be open
+    if (showCamera) {
+      detectionLoopRef.current = requestAnimationFrame(runDetectionLoop);
+    }
   }
 };
 
