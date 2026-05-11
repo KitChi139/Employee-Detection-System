@@ -63,6 +63,7 @@ function EmployeesPage() {
 
   const [showCamera, setShowCamera] = useState(false);
   const [cameraSlot, setCameraSlot] = useState(null);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
   const videoRef                    = useRef(null);
   const streamRef                   = useRef(null);
   const detectionLoopRef            = useRef(null);   // requestAnimationFrame handle
@@ -104,6 +105,7 @@ function EmployeesPage() {
           faceapi.nets.faceRecognitionNet.loadFromUri('/models'),   // ← ADD THIS LINE
         ]);
         modelsLoadedRef.current = true;
+        setModelsLoaded(true);
       } catch (err) {
         console.error('Could not load face-api models:', err);
       }
@@ -113,6 +115,10 @@ function EmployeesPage() {
 
   // ── Detection loop — runs every animation frame while camera is open ──────
 const runDetectionLoop = async () => {
+  if (!modelsLoaded) {
+    detectionLoopRef.current = requestAnimationFrame(runDetectionLoop);
+    return;
+  }
   if (!videoRef.current || videoRef.current.readyState < 2) {
     // ── AUTO CAPTURE LOGIC ──
     if (isCapturingSequence && allAutoReqsMet && currentCapturingSlot !== null) {
@@ -457,6 +463,10 @@ try {
   };
 
 const openCamera = async (startingSlot = 0) => {
+  if (!modelsLoaded) {
+    alert("Face detection models are still loading. Please wait a few seconds.");
+    return;
+  }
   setCurrentCapturingSlot(startingSlot);
   setIsCapturingSequence(true);
   setReqs(defaultReqs);
@@ -962,11 +972,20 @@ const closeCamera = () => {
                           </div>
                           <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleSlotFileChange(i, e)} />
                         </label>
-                        <button type="button" onClick={() => openCamera(i)} style={{
-                          background: '#e8f0fe', borderRadius: 6, padding: '4px 8px',
-                          fontSize: 11, color: '#1a73e8', fontWeight: 600,
-                          border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                        }}> Camera</button>
+                        <button 
+                          type="button" 
+                          onClick={() => openCamera(i)} 
+                          disabled={!modelsLoaded}
+                          style={{
+                            background: modelsLoaded ? '#e8f0fe' : '#f0f0f0', 
+                            borderRadius: 6, padding: '4px 8px',
+                            fontSize: 11, color: modelsLoaded ? '#1a73e8' : '#aaa', fontWeight: 600,
+                            border: 'none', cursor: modelsLoaded ? 'pointer' : 'not-allowed', 
+                            display: 'flex', alignItems: 'center', gap: 4,
+                          }}
+                        > 
+                          {modelsLoaded ? ' Camera' : ' Loading...'}
+                        </button>
                       </>
                     )}
                   </div>
