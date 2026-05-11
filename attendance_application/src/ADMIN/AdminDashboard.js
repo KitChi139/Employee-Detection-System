@@ -13,7 +13,7 @@ import LiveClock from "../components/LiveClock";
 import InfoTooltip from "../components/InfoTooltip";
 
 // ── Keys shared with Settingspage ──────────────────────────────────────────
-const LOGO_KEY = 'institution_logo';
+const LOGO_KEY = 'plp_logo';
 const NAME_KEY = 'institution_name';
 
 function AdminDashboard({ onLogout }) {
@@ -70,8 +70,14 @@ function AdminDashboard({ onLogout }) {
 
   // Called by Settingspage when user clicks Save
   const handleBrandingChange = ({ logo, name }) => {
-    if (logo) setSidebarLogo(logo);
-    if (name) setSidebarName(name);
+    if (logo) {
+      setSidebarLogo(logo);
+      localStorage.setItem(LOGO_KEY, logo);
+    }
+    if (name) {
+      setSidebarName(name);
+      localStorage.setItem(NAME_KEY, name);
+    }
   };
 
   const [stats, setStats] = useState({

@@ -295,7 +295,7 @@ export default function Settingspage({ onBrandingChange }) {
       confirmIcon: 'bi-check-lg',
     });
     if (!result) return;
-    if (plpLogo) localStorage.setItem(PLP_LOGO_KEY, plpLogo);
+    localStorage.setItem(PLP_LOGO_KEY, plpLogo || '');
     localStorage.setItem(NAME_KEY, institutionName);
     if (onBrandingChange) onBrandingChange({ logo: plpLogo, name: institutionName });
     setSaveSuccess(true);
