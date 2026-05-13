@@ -3,9 +3,19 @@ import { Row, Col, Card, Button, Modal, Form, Badge } from 'react-bootstrap';
 import { getEventAttendance, getEmployees, getDepartments, getEventSetup, setupEventEmployees, activateEvent, deactivateEvent, updateEvent } from '../api';
 import './ccs/event.css';
 
-const PLP_LOGO_KEY   = 'plp_logo';
-const DEPT_LOGOS_KEY = 'dept_logos';
-const NAME_KEY       = 'institution_name';
+const PLP_LOGO_KEY            = 'plp_logo';
+const DEPT_LOGOS_KEY          = 'dept_logos';
+const NAME_KEY                = 'institution_name';
+
+// PDF Export settings keys (managed in Settings → PDF Export tab)
+const PDF_PASIG_LOGO_KEY      = 'pdf_pasig_logo';
+const PDF_WORDMARK_KEY        = 'pdf_wordmark_logo';
+const PDF_OFFICE_NAME_KEY     = 'pdf_office_name';
+const PDF_ADDRESS_KEY         = 'pdf_address';
+const PDF_CONTACT_KEY         = 'pdf_contact';
+const PDF_RECORDED_BY_KEY     = 'pdf_recorded_by';
+const PDF_SIGNATORY_KEY       = 'pdf_signatory';
+const PDF_SIGNATORY_TITLE_KEY = 'pdf_signatory_title';
 
 function formatTime(val) {
   if (!val || val === '--------') return '';
@@ -23,6 +33,22 @@ function formatDate(val) {
     if (isNaN(d)) return val;
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   } catch { return val; }
+}
+
+// ── Name formatter: "Last Name, First Name(s)" ─────────────────────────────
+function formatNameLastFirst(record) {
+  // If the API returns separate fields, use them directly
+  if (record.employee_LastName && record.employee_firstName) {
+    return `${record.employee_LastName}, ${record.employee_firstName}`;
+  }
+  // Fallback: split fullName — assume last word is the surname
+  const parts = (record.fullName || '').trim().split(/\s+/);
+  if (parts.length >= 2) {
+    const last  = parts[parts.length - 1];
+    const first = parts.slice(0, parts.length - 1).join(' ');
+    return `${last}, ${first}`;
+  }
+  return record.fullName || '';
 }
 
 function loadScript(src) {
@@ -101,6 +127,16 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
     catch { return {}; }
   })();
 
+  // Dynamic PDF export settings from Settings → PDF Export tab
+  const pdfPasigLogo     = localStorage.getItem(PDF_PASIG_LOGO_KEY)      || '/Pasig_Logo.PNG';
+  const pdfWordmark      = localStorage.getItem(PDF_WORDMARK_KEY)         || '/Pasig_Wordmark.PNG';
+  const pdfOfficeName    = localStorage.getItem(PDF_OFFICE_NAME_KEY)      || 'Office of the Human Resource Development';
+  const pdfAddress       = localStorage.getItem(PDF_ADDRESS_KEY)          || 'Alkalde Jose St., Kapasigan, Pasig City, Philippines 1600';
+  const pdfContact       = localStorage.getItem(PDF_CONTACT_KEY)          || '638-1014 Loc. 106  |  hrd@plpasig.edu.ph';
+  const pdfRecordedBy    = localStorage.getItem(PDF_RECORDED_BY_KEY)      || 'Recorded by HRD Personnel\nAttendance checked/monitored by:';
+  const pdfSignatory     = localStorage.getItem(PDF_SIGNATORY_KEY)        || 'Signature Over Printed Name';
+  const pdfSignatoryTitle= localStorage.getItem(PDF_SIGNATORY_TITLE_KEY)  || 'Head of Office';
+
   const eventDate = eventData?.event_date || '';
   const eventType = eventData?.eventtype_name || '';
   const location  = eventData?.location_name || '';
@@ -122,7 +158,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
   // Safety cleanup for modal backdrop
   useEffect(() => {
   if (showSetupModal) return;
-  // Use a small delay so React finishes its own DOM cleanup first
   const timer = setTimeout(() => {
     document.body.classList.remove('modal-open');
     document.body.style.removeProperty('overflow');
@@ -159,7 +194,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
       const setupExists = Array.isArray(ids) && ids.length > 0;
       setHasSetup(setupExists);
 
-      // Sync scan mode from fresh API data only if no local override
       if (setupData?.scan_mode) {
         const localSaved = localStorage.getItem(`attendanceMode_${event_ID}`);
         if (!localSaved) {
@@ -167,7 +201,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
         }
       }
 
-      // Prefer explicit `status` when provided by the API; fallback to is_active
       if (setupData && (setupData?.status ?? null) !== null) {
         setEventStatus(setupData.status);
         setEventActive((setupData.status === 'Activated'));
@@ -205,7 +238,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
     try {
       setSavingSetup(true);
       await setupEventEmployees(event_ID, Array.from(selectedEmployeeIds));
-      // Refresh setup info so `hasSetup` and button state update immediately
       await loadSetupData();
       setShowSetupModal(false);
       await loadAttendance();
@@ -221,7 +253,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
       alert('Please set up event first');
       return;
     }
-
     try {
       setUpdatingStatus(true);
       await activateEvent(event_ID);
@@ -264,24 +295,15 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
         scan_mode: newMode
       };
       await updateEvent(event_ID, updateData);
-      
-      // Mandatory LocalStorage Persistence
       localStorage.setItem(`attendanceMode_${event_ID}`, newMode);
       setScanMode(newMode);
-      
-      // Update the parent's (AdminDashboard) state too so it's persisted across tabs
       if (onUpdateData) {
         onUpdateData({ scan_mode: newMode });
       }
-      
-      // Show Success Feedback
       setStatusModalType('success');
       setStatusModalMsg(`Scanning mode successfully switched to ${newMode === 'check_in' ? 'Check-In' : 'Check-Out'}.`);
       setShowStatusModal(true);
-      
-      // Auto-hide modal after 2 seconds
       setTimeout(() => setShowStatusModal(false), 2000);
-      
     } catch (e) {
       setStatusModalType('error');
       setStatusModalMsg(e?.message || 'Failed to update scan mode.');
@@ -328,18 +350,18 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
       const exportRows  = filtered;
       const dateStr     = formatDate(eventDate);
 
-      // Pre-load logos as base64
       const [pasigLogoB64, pasigWordmarkB64, plpLogoB64, collegeLogoB64] = await Promise.all([
-        loadImageAsBase64('/Pasig_Logo.PNG'),
-        loadImageAsBase64('/Pasig_Wordmark.PNG'),
+        pdfPasigLogo ? (pdfPasigLogo.startsWith('data:') ? Promise.resolve(pdfPasigLogo) : loadImageAsBase64(pdfPasigLogo)) : Promise.resolve(''),
+        pdfWordmark  ? (pdfWordmark.startsWith('data:')  ? Promise.resolve(pdfWordmark)  : loadImageAsBase64(pdfWordmark))  : Promise.resolve(''),
         plpLogo ? loadImageAsBase64(plpLogo) : Promise.resolve(''),
         collegeLogo ? loadImageAsBase64(collegeLogo) : Promise.resolve(''),
       ]);
 
+      // Use "Last Name, First Name" in the PDF
       const rowsHtml = exportRows.map((r, i) => `
         <tr>
           <td class="cc">${i + 1}</td>
-          <td>${r.fullName || ''}</td>
+          <td>${formatNameLastFirst(r)}</td>
           <td class="cc">${r.attended ? '&#10003;' : ''}</td>
           <td class="cc">${!r.attended ? 'A' : ''}</td>
         </tr>
@@ -378,7 +400,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
             margin-bottom: 14px;
           }
 
-          /* LEFT: logos row */
           .logo-left {
             display: flex;
             align-items: center;
@@ -412,7 +433,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
             border-radius: 4px;
           }
 
-          /* RIGHT: school info */
           .header-right {
             text-align: right;
             line-height: 1.6;
@@ -446,7 +466,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
             margin-top: 2px;
           }
 
-          /* TITLE BLOCK */
           .title-block {
             text-align: center;
             padding: 8px 0 6px;
@@ -494,8 +513,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
 
         <!-- HEADER -->
         <div class="header">
-
-          <!-- LEFT: Pasig Logo → Pasig Wordmark → divider → School Logo → Dept Logo -->
           <div class="logo-left">
             ${pasigLogoB64
               ? `<img src="${pasigLogoB64}" alt="Pasig Logo" />`
@@ -518,14 +535,12 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
               : ''}
           </div>
 
-          <!-- RIGHT: school name ribbon + info -->
           <div class="header-right">
             <div class="header-institution">${institutionName}</div>
-            <div class="header-sub">Office of the Human Resource Development</div>
-            <div class="header-address">Alkalde Jose St., Kapasigan, Pasig City, Philippines 1600</div>
-            <div class="header-contact">&#9990; 638-1014 Loc. 106 &nbsp;&nbsp;|&nbsp;&nbsp; &#9993; hrd@plpasig.edu.ph</div>
+            <div class="header-sub">${pdfOfficeName}</div>
+            <div class="header-address">${pdfAddress}</div>
+            <div class="header-contact">${pdfContact}</div>
           </div>
-
         </div>
 
         <!-- TITLE BLOCK -->
@@ -545,7 +560,7 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
         </div>
 
         <div class="instruction">
-          <strong>&#10003;</strong> means present; if absent <strong>A</strong> and if late <strong>L</strong>.
+          <strong>&#10003;</strong> means present; if absent <strong>A</strong>.
         </div>
 
         <table>
@@ -557,7 +572,7 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
               <th>No.</th>
               <th>Name of Employee</th>
               <th>PRESENT</th>
-              <th>ABSENT / LATE</th>
+              <th>ABSENT</th>
             </tr>
           </thead>
           <tbody>
@@ -569,18 +584,17 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
         <div class="stats-box">
           <span>Total Employees: <strong>${exportRows.length}</strong></span>
           <span>Attended: <strong>${attended}</strong></span>
-          <span>Absent / Late: <strong>${absent}</strong></span>
+          <span>Absent: <strong>${absent}</strong></span>
           <span>Attendance Rate: <strong>${attendRate}%</strong></span>
         </div>
 
         <div class="footer-section">
           <div class="footer-note">
-            Recorded by HRD Personnel<br/>
-            Attendance checked/monitored by:
+            ${pdfRecordedBy.replace(/\n/g, '<br/>')}
           </div>
           <div class="signature-line">
-            Signature Over Printed Name<br/>
-            <span class="signature-sub">Head of Office</span>
+            ${pdfSignatory}<br/>
+            <span class="signature-sub">${pdfSignatoryTitle}</span>
           </div>
         </div>
       `;
@@ -596,7 +610,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
         windowWidth:     794,
       });
 
-      // Safe removal — check it's still in the DOM
       if (container.parentNode === document.body) {
         document.body.removeChild(container);
       }
@@ -638,7 +651,7 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
       xml += `    <record>\n`;
       xml += `      <no>${index + 1}</no>\n`;
       xml += `      <employee_code>${r.employee_code}</employee_code>\n`;
-      xml += `      <full_name>${r.fullName}</full_name>\n`;
+      xml += `      <full_name>${formatNameLastFirst(r)}</full_name>\n`;
       xml += `      <department>${r.department_name}</department>\n`;
       xml += `      <check_in>${r.checkIn || ''}</check_in>\n`;
       xml += `      <check_out>${r.checkOut || ''}</check_out>\n`;
@@ -652,7 +665,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
     return xml;
   };
 
-  // Copy XML to clipboard
   const copyXMLToClipboard = async () => {
     const xmlContent = generateAttendanceXML();
     try {
@@ -663,7 +675,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
     }
   };
 
-  // Download XML
   const downloadXML = () => {
     const xmlContent = generateAttendanceXML();
     const blob = new Blob([xmlContent], { type: 'application/xml' });
@@ -774,7 +785,6 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
                 <Button onClick={handleExportLog} disabled={exporting || !hasSetup} className="btn-export-pdf">
                   {exporting ? 'Exporting…' : 'Export PDF'}
                 </Button>
-                
               </div>
             </div>
           </div>
@@ -801,6 +811,7 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
               </select>
             </Col>
           </Row>
+
           {viewMode === 'table' ? (        
           <div className="table-responsive">
             <table className="attendance-table">
@@ -820,7 +831,7 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
                   filtered.map((r, index) => (
                     <tr key={index}>
                       <td>{r.employee_code}</td>
-                      <td>{r.fullName}</td>
+                      <td>{formatNameLastFirst(r)}</td>
                       <td>{r.department_name}</td>
                       <td>{r.checkIn || '--------'}</td>
                       <td>{r.checkOut || '--------'}</td>
@@ -955,7 +966,7 @@ function EventDetailsPage({ onNavigate, eventData, onUpdateData }) {
                 style={{ accentColor: '#28a745', width: 14, height: 14, flexShrink: 0 }}
               />
               <div className="employee-row-info">
-                <p className="employee-row-name">{emp.employee_firstName} {emp.employee_LastName}</p>
+                <p className="employee-row-name">{emp.employee_LastName}, {emp.employee_firstName}</p>
                 <p className="employee-row-sub">{emp.employee_code} · {emp.department_name}</p>
               </div>
               <span className="employee-dept-badge">{emp.department_name}</span>
