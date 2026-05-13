@@ -815,7 +815,8 @@ const closeCamera = () => {
             <thead>
               <tr>
                 <th>Code</th>
-                <th>Full Name</th>
+                <th>Last Name</th>
+                <th>First Name</th>
                 <th>Department</th>
                 <th>Position</th>
                 <th style={{ width: 160 }}>Actions</th>
@@ -823,12 +824,13 @@ const closeCamera = () => {
             </thead>
             <tbody>
               {filteredEmployees.length === 0 ? (
-                <tr><td colSpan="5" className="text-center py-4 text-muted">No employees found</td></tr>
+                <tr><td colSpan="6" className="text-center py-4 text-muted">No employees found</td></tr>
               ) : (
                 filteredEmployees.map(emp => (
                   <tr key={emp.employee_ID}>
                     <td>{emp.employee_code}</td>
-                    <td>{emp.employee_firstName} {emp.employee_LastName}</td>
+                    <td>{emp.employee_LastName}</td>
+                    <td>{emp.employee_firstName}</td>
                     <td>{emp.department_name || '—'}</td>
                     <td>{emp.position || '—'}</td>
                     <td>
