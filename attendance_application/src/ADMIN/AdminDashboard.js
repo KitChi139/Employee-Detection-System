@@ -366,9 +366,18 @@ useEffect(() => {
           Dashboard {isEventSelected ? `- ${currentEventName}` : ": Today's Events"}
         </h1>
 
-        <h2 className="dashboard-title mb-1" style={{ fontSize: '1.4rem', color: '#333' }}>
-          {todayDateStr}
-        </h2>
+<h2 className="dashboard-title mb-1" style={{ 
+  fontSize: '1.4rem', 
+  color: '#1a4731', 
+  fontWeight: '700', 
+  letterSpacing: '0.5px',
+  textShadow: '0 1px 3px rgba(0,0,0,0.4)',
+  background: 'linear-gradient(90deg, #4ade80, #16a34a)',
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent'
+}}>
+  {todayDateStr}
+</h2>
 
       {/* Event Filter Dropdown */}
       <div className="mb-4">
