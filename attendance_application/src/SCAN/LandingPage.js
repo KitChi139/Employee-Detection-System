@@ -135,6 +135,47 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
     }
   };
 
+  // ── Keyboard support for manual ID entry ──────────────────────────────────
+  useEffect(() => {
+    if (!manualMode) return; // Only active in manual mode
+
+    const handleKeyDown = (e) => {
+      // Ignore if a real input/textarea is focused (e.g. dropdowns)
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      // Digits 0–9
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        handleManualIdKey(e.key);
+      }
+      // Backspace
+      else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleManualBackspace();
+      }
+      // Delete or Escape → clear all
+      else if (e.key === 'Delete' || e.key === 'Escape') {
+        e.preventDefault();
+        handleManualClear();
+      }
+      // Enter → search
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        handleManualSearch();
+      }
+      // Dash / hyphen
+      else if (e.key === '-') {
+        e.preventDefault();
+        handleManualIdKey('-');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualMode, manualId, employees, selectedEvent]);
+
   const handleScanDifferentFace = () => {
     if (recognitionTimer) clearTimeout(recognitionTimer);
     
@@ -264,7 +305,6 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   // ── Cleanup overflow on component unmount ──
   useEffect(() => {
     return () => {
-      // Just ensure we're clean on unmount
       document.body.style.overflow = '';
     };
   }, []);
@@ -314,14 +354,13 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
               const photosData = await getEmployeePhotos(emp.employee_ID);
               const photos = Array.isArray(photosData) ? photosData : (photosData?.data ?? []);
 
-              // Take the first embedding (or combine multiple if you want)
               if (photos.length > 0 && photos[0].embedding) {
                 return {
                   ...emp,
-                  embedding: photos[0].embedding   // array of 128 numbers
+                  embedding: photos[0].embedding
                 };
               }
-              return emp; // no embedding
+              return emp;
             } catch (err) {
               console.warn(`Failed to load embedding for employee ${emp.employee_code}`, err);
               return emp;
@@ -368,7 +407,6 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
         if (activeEmps.length > 0) {
           setEmployees(prevEmps => {
             return activeEmps.map(newEmp => {
-              // Try to find if we already have this employee's embedding
               const existing = prevEmps.find(p => p.employee_ID === newEmp.employee_ID);
               if (existing && existing.embedding) {
                 return { ...newEmp, embedding: existing.embedding };
@@ -394,7 +432,6 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
 
   useEffect(() => {
     if (showAdminLogin) {
-      // ensure camera is stopped when admin overlay opens
       try { stopCamera(); } catch (e) { /* ignore if not available yet */ }
       document.body.classList.add('overlay-active');
     } else {
@@ -417,33 +454,32 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
   const getSelectedEventDetails = () => {
     return availableEvents.find(event => event.id.toString() === selectedEvent);
   };
-    useEffect(() => {
-      const setupBackend = async () => {
-        try {
-          // Force CPU backend to avoid WebGL crash
-          await faceapi.tf.setBackend('cpu');
-          await faceapi.tf.ready();   // Important: wait until ready
-          
-          console.log('✅ Using CPU backend for face-api.js');
-          
-          // Now load your models
-          await Promise.all([
-            faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
-            faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-            faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
-          ]);
-          
-          setModelsLoaded(true);
-          console.log('✅ Models loaded with CPU backend');
-        } catch (err) {
-          console.error('❌ Backend or model loading failed:', err);
-        }
-      };
 
-      setupBackend();
-    }, []);
+  useEffect(() => {
+    const setupBackend = async () => {
+      try {
+        await faceapi.tf.setBackend('cpu');
+        await faceapi.tf.ready();
+        
+        console.log('✅ Using CPU backend for face-api.js');
+        
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
+          faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
+          faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
+        ]);
+        
+        setModelsLoaded(true);
+        console.log('✅ Models loaded with CPU backend');
+      } catch (err) {
+        console.error('❌ Backend or model loading failed:', err);
+      }
+    };
 
-  // Live Face Detection + Recognition — optimized with RAF + pre-built cache
+    setupBackend();
+  }, []);
+
+  // Live Face Detection + Recognition
   useEffect(() => {
     if (!cameraActive || !modelsLoaded || !employees.length || !isScanning) {
       setCurrentDetectedName('');
@@ -453,7 +489,7 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
 
     let rafId = null;
     let lastRun = 0;
-    const INTERVAL = 350; // ms between detections — enough for smooth UI without hammering CPU
+    const INTERVAL = 350;
 
     const runRecognition = async (timestamp) => {
       rafId = requestAnimationFrame(runRecognition);
@@ -465,26 +501,13 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
       if (!video || video.readyState < 2) return;
 
       try {
-        // Skip withFaceLandmarks — not needed for recognition, saves ~30% CPU
         const detection = await faceapi
           .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({
-            inputSize: 128,        // Smallest size — fast enough for attendance
+            inputSize: 128,
             scoreThreshold: 0.4
           }))
           .withFaceLandmarks()
           .withFaceDescriptor();
-        // const blob = await fetch(videoFrame).then(r => r.blob());
-
-        // const formData = new FormData();
-        // formData.append("file", blob);
-
-        // const res = await fetch("http://localhost:8000/recognize", {
-        //   method: "POST",
-        //   body: formData
-        // });
-
-        // const data = await res.json();
-        // const liveVec = data.embedding;
 
         if (!detection) {
           setCurrentDetectedName('');
@@ -494,12 +517,10 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
 
         const liveVec = detection.descriptor;
 
-        // Pre-compute live norm once
         let liveNorm = 0;
         for (let i = 0; i < 128; i++) liveNorm += liveVec[i] * liveVec[i];
         liveNorm = Math.sqrt(liveNorm);
 
-        // Fast dot-product similarity using pre-built cache
         let bestEmp = null;
         let bestScore = -Infinity;
         const cache = cachedEmbeddingsRef.current;
@@ -512,7 +533,7 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
           if (sim > bestScore) { bestScore = sim; bestEmp = emp; }
         }
 
-        const MIN_SIMILARITY = 0.95; // require 95% similarity to confirm
+        const MIN_SIMILARITY = 0.95;
 
         if (bestEmp && bestScore > MIN_SIMILARITY) {
           const detectedName = `${bestEmp.employee_firstName} ${bestEmp.employee_LastName}`;
@@ -556,51 +577,50 @@ function EmployeePage({ onBack, onNavigateAdmin }) {
     return () => { if (rafId) cancelAnimationFrame(rafId); };
   }, [cameraActive, modelsLoaded, employees, isScanning]);
 
-const startCamera = async () => {
-  if (!selectedEvent) {
-    alert("Please select an event first");
-    return;
-  }
-
-  try {
-    const mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'user',
-        width: { ideal: 480 },   // Lower from 640
-      height: { ideal: 360 },  // Keep 4:3 or 16:9 ratio
-      frameRate: { ideal: 15 }
-      }
-    });
-
-    const video = videoRef.current;
-    if (!video) {
-      console.error("Video ref is still null");
-      alert("Video element not ready. Please try again.");
+  const startCamera = async () => {
+    if (!selectedEvent) {
+      alert("Please select an event first");
       return;
     }
 
-    video.srcObject = mediaStream;
-    setStream(mediaStream);
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 480 },
+          height: { ideal: 360 },
+          frameRate: { ideal: 15 }
+        }
+      });
 
-    // Play the video
-    video.onloadedmetadata = async () => {
-      try {
-        await video.play();
-        console.log("✅ Camera started successfully");
-        setCameraActive(true);
-      } catch (err) {
-        console.error("❌ Video play failed:", err);
-        alert("Camera started but video failed to display");
+      const video = videoRef.current;
+      if (!video) {
+        console.error("Video ref is still null");
+        alert("Video element not ready. Please try again.");
+        return;
       }
-    };
 
-  } catch (error) {
-    console.error("Camera access error:", error);
-    alert(`Cannot access camera: ${error.message || error.name}`);
-  }
-};
+      video.srcObject = mediaStream;
+      setStream(mediaStream);
 
-const stopCamera = () => {
+      video.onloadedmetadata = async () => {
+        try {
+          await video.play();
+          console.log("✅ Camera started successfully");
+          setCameraActive(true);
+        } catch (err) {
+          console.error("❌ Video play failed:", err);
+          alert("Camera started but video failed to display");
+        }
+      };
+
+    } catch (error) {
+      console.error("Camera access error:", error);
+      alert(`Cannot access camera: ${error.message || error.name}`);
+    }
+  };
+
+  const stopCamera = () => {
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
@@ -614,9 +634,8 @@ const stopCamera = () => {
     setRecognitionConfidence(0);
     setCurrentDetectedName('');
     setCurrentConfidence(0);
-    setIsScanning(true);        // Reset for next time
+    setIsScanning(true);
   };
-
 
   const handleMarkAttendance = async (user = recognizedUser, method = 'face') => {
     if (!user || !selectedEvent) return;
@@ -624,11 +643,9 @@ const stopCamera = () => {
     try {
       setAttendanceStatus('loading');
 
-      // --- CRITICAL: Refresh event details to get latest scan_mode ---
       const freshEvent = await getEventSetup(selectedEvent);
       const dbScanMode = freshEvent?.scan_mode || 'check_in';
       
-      // STRICT REQUIREMENT: Prioritize localStorage for persistence
       const currentMode = localStorage.getItem(`attendanceMode_${selectedEvent}`) || dbScanMode;
       const mode = currentMode === 'check_out' ? 'Check Out' : 'Check In';
       
@@ -644,7 +661,6 @@ const stopCamera = () => {
       setAttendanceStatus('success');
       setAttendanceMsg(res?.message || `${mode} Successful!`);
       
-      // Auto close after 3 seconds and reset scanner
       setTimeout(() => {
         setAttendanceStatus(null);
         setAttendanceMsg('');
@@ -653,6 +669,11 @@ const stopCamera = () => {
         setCurrentDetectedName('');
         setCurrentConfidence(0);
         setIsScanning(true);
+        // Reset manual ID field after successful attendance
+        if (method === 'manual') {
+          setManualId('');
+          setManualSearched(false);
+        }
       }, 3000);
 
     } catch (error) {
@@ -660,7 +681,6 @@ const stopCamera = () => {
       setAttendanceStatus('error');
       setAttendanceMsg(error.message || 'Failed to mark attendance.');
       
-      // Auto close after 4 seconds but let the user see the error
       setTimeout(() => {
         setAttendanceStatus(null);
         setAttendanceMsg('');
@@ -672,7 +692,6 @@ const stopCamera = () => {
       }, 4000);
     }
   };
-
 
   const handleScanDifferent = () => {
     setRecognizedUser(null);
@@ -694,10 +713,10 @@ const stopCamera = () => {
   }, [stream]);
 
   useEffect(() => {
-      return () => {
-        if (recognitionTimer) clearTimeout(recognitionTimer);
-      };
-    }, [recognitionTimer]);
+    return () => {
+      if (recognitionTimer) clearTimeout(recognitionTimer);
+    };
+  }, [recognitionTimer]);
 
   // Pre-build embedding cache whenever employees list is refreshed
   useEffect(() => {
@@ -711,7 +730,6 @@ const stopCamera = () => {
       }
       if (!Array.isArray(arr) || arr.length !== 128) continue;
       const vec = new Float32Array(arr);
-      // Pre-compute norm so similarity is just a dot product + one division
       let norm = 0;
       for (let i = 0; i < 128; i++) norm += vec[i] * vec[i];
       norm = Math.sqrt(norm);
@@ -729,8 +747,6 @@ const stopCamera = () => {
       backgroundColor: "#0d3a22"
     }}>
 
-
-   
       <div className="logo-container logo-left">
         {branding.logo ? (
           <img 
@@ -758,7 +774,6 @@ const stopCamera = () => {
       <Container fluid className="main-content px-3" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <Row className="justify-content-center" style={{ flex: 1, minHeight: 0 }}>
           <Col xs={12} lg={11} xl={10} xxl={9} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            {/* Removed Institution Name Branding Header as per request */}
 
             {/* Date and Time Display */}
             <Card className="datetime-card shadow-lg" onClick={handleClockTap} style={{ cursor: 'default', userSelect: 'none' }}>
@@ -770,7 +785,6 @@ const stopCamera = () => {
             </Card>
 
             {/* ── THREE-COLUMN SCANNER LAYOUT ── */}
-            {/* Left: Camera | Top-Right: Select Event | Bottom-Right: Detected Profile */}
             <div className="scanner-three-col-layout">
 
               {/* ── LEFT: Camera / Input Side ── */}
@@ -958,6 +972,28 @@ const stopCamera = () => {
                   {/* ── MANUAL ID MODE ── */}
                   {manualMode && !recognizedUser && (
                     <div className="manual-id-section">
+                      {/* Keyboard hint banner */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: 'rgba(255,255,255,0.08)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '8px',
+                        padding: '6px 12px',
+                        marginBottom: '10px',
+                        fontSize: '12px',
+                        color: 'rgba(255,255,255,0.7)'
+                      }}>
+                        <i className="bi bi-keyboard" style={{ fontSize: '14px', color: '#fbbf24' }}></i>
+                        <span>
+                          You can also type using your <strong style={{ color: '#fff' }}>physical keyboard</strong>
+                          &nbsp;— digits, <kbd style={{ background: 'rgba(255,255,255,0.15)', borderRadius: '4px', padding: '1px 5px' }}>Backspace</kbd>,
+                          &nbsp;<kbd style={{ background: 'rgba(255,255,255,0.15)', borderRadius: '4px', padding: '1px 5px' }}>Enter</kbd> to search,
+                          &nbsp;<kbd style={{ background: 'rgba(255,255,255,0.15)', borderRadius: '4px', padding: '1px 5px' }}>Esc</kbd> to clear
+                        </span>
+                      </div>
+
                       <div className="manual-id-display-wrapper">
                         <div className="manual-id-label">
                           <i className="bi bi-person-badge me-2"></i>Employee ID
@@ -1083,152 +1119,153 @@ const stopCamera = () => {
 
                 {/* ── BOTTOM-RIGHT: Detected Profile ── */}
                 <Card className="camera-card shadow-lg scanner-right-panel scanner-right-bottom-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-                <Card.Body className="d-flex flex-column" style={{ overflow: 'hidden', minHeight: 0 }}>
-                  <h5 className="mb-2 fw-bold" style={{ color: "white", fontSize: '14px' }}>
-                    <i className="bi bi-person-lines-fill me-2 text-success"></i>
-                    Detected Profile
-                  </h5>
+                  <Card.Body className="d-flex flex-column" style={{ overflow: 'hidden', minHeight: 0 }}>
+                    <h5 className="mb-2 fw-bold" style={{ color: "white", fontSize: '14px' }}>
+                      <i className="bi bi-person-lines-fill me-2 text-success"></i>
+                      Detected Profile
+                    </h5>
 
-                  {!recognizedUser ? (
-                    /* ── Awaiting Detection State ── */
-                    <div className="detected-profile-awaiting flex-grow-1 d-flex flex-column align-items-center justify-content-center" style={{ minHeight: 0, overflow: 'hidden' }}>
-                      <div className="awaiting-avatar-circle mb-3">
-                        <i className="bi bi-person-bounding-box"></i>
-                      </div>
-                      <h5 className="fw-semibold text-muted mb-2">Awaiting Detection</h5>
-                      <p className="text-muted text-center small px-3">
-                        Start the camera and position your face in front of the scanner. The detected employee will appear here.
-                      </p>
-                      <div className="awaiting-dots mt-2">
-                        <span></span><span></span><span></span>
-                      </div>
-                    </div>
-                  ) : (
-                    /* ── Employee Identified State ── */
-                    <div className="detected-profile-found flex-grow-1 d-flex flex-column">
-                      <div className="text-center mb-3">
-                        <Badge bg="success" className="px-3 py-2 fs-6">
-                          <i className="bi bi-check-circle me-1"></i>Employee Identified
-                        </Badge>
-                      </div>
-
-                      <div className="text-center mb-4">
-                        <div className="user-avatar-circle mx-auto mb-2">
-                          <i className="bi bi-person-fill"></i>
+                    {!recognizedUser ? (
+                      /* ── Awaiting Detection State ── */
+                      <div className="detected-profile-awaiting flex-grow-1 d-flex flex-column align-items-center justify-content-center" style={{ minHeight: 0, overflow: 'hidden' }}>
+                        <div className="awaiting-avatar-circle mb-3">
+                          <i className="bi bi-person-bounding-box"></i>
                         </div>
-                        <h4 className="fw-bold mb-0">{recognizedUser.name}</h4>
-
-                        {/* Inline attendance status instead of modal */}
-                        {attendanceStatus === 'loading' && (
-                          <div className="text-primary small mt-2">
-                            <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                            Checking in...
-                          </div>
-                        )}
-                        {attendanceStatus === 'success' && (
-                          <div className="text-success small mt-2">
-                            {attendanceMsg || 'Already checked in'}
-                          </div>
-                        )}
-                        {attendanceStatus === 'error' && (
-                          <div className="text-danger small mt-2">
-                            {attendanceMsg || 'Attendance failed'}
-                          </div>
-                        )}
+                        <h5 className="fw-semibold text-muted mb-2">Awaiting Detection</h5>
+                        <p className="text-muted text-center small px-3">
+                          Start the camera and position your face in front of the scanner. The detected employee will appear here.
+                        </p>
+                        <div className="awaiting-dots mt-2">
+                          <span></span><span></span><span></span>
+                        </div>
                       </div>
-
-                      <div className="detected-profile-details mb-3">
-                        <div className="profile-detail-row">
-                          <div className="profile-detail-icon text-success">
-                            <i className="bi bi-person-badge"></i>
-                          </div>
-                          <div>
-                            <div className="profile-detail-label">EMPLOYEE NUMBER</div>
-                            <div className="profile-detail-value">{recognizedUser.id}</div>
-                          </div>
+                    ) : (
+                      /* ── Employee Identified State ── */
+                      <div className="detected-profile-found flex-grow-1 d-flex flex-column">
+                        <div className="text-center mb-3">
+                          <Badge bg="success" className="px-3 py-2 fs-6">
+                            <i className="bi bi-check-circle me-1"></i>Employee Identified
+                          </Badge>
                         </div>
 
-                        <div className="profile-detail-row">
-                          <div className="profile-detail-icon text-success">
-                            <i className="bi bi-briefcase"></i>
+                        <div className="text-center mb-4">
+                          <div className="user-avatar-circle mx-auto mb-2">
+                            <i className="bi bi-person-fill"></i>
                           </div>
-                          <div>
-                            <div className="profile-detail-label">POSITION</div>
-                            <div className="profile-detail-value">{recognizedUser.role || '—'}</div>
-                          </div>
+                          <h4 className="fw-bold mb-0">{recognizedUser.name}</h4>
+
+                          {attendanceStatus === 'loading' && (
+                            <div className="text-primary small mt-2">
+                              <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                              Checking in...
+                            </div>
+                          )}
+                          {attendanceStatus === 'success' && (
+                            <div className="text-success small mt-2">
+                              {attendanceMsg || 'Already checked in'}
+                            </div>
+                          )}
+                          {attendanceStatus === 'error' && (
+                            <div className="text-danger small mt-2">
+                              {attendanceMsg || 'Attendance failed'}
+                            </div>
+                          )}
                         </div>
 
-                        <div className="profile-detail-row">
-                          <div className="profile-detail-icon text-success">
-                            <i className="bi bi-building"></i>
+                        <div className="detected-profile-details mb-3">
+                          <div className="profile-detail-row">
+                            <div className="profile-detail-icon text-success">
+                              <i className="bi bi-person-badge"></i>
+                            </div>
+                            <div>
+                              <div className="profile-detail-label">EMPLOYEE NUMBER</div>
+                              <div className="profile-detail-value">{recognizedUser.id}</div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="profile-detail-label">DEPARTMENT</div>
-                            <div className="profile-detail-value">{recognizedUser.department || '—'}</div>
-                          </div>
-                        </div>
 
-                        <div className="profile-detail-row">
-                          <div className="profile-detail-icon" style={{ color: recognitionConfidence > 70 ? '#28a745' : '#ffc107' }}>
-                            <i className="bi bi-graph-up"></i>
+                          <div className="profile-detail-row">
+                            <div className="profile-detail-icon text-success">
+                              <i className="bi bi-briefcase"></i>
+                            </div>
+                            <div>
+                              <div className="profile-detail-label">POSITION</div>
+                              <div className="profile-detail-value">{recognizedUser.role || '—'}</div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="profile-detail-label">MATCH CONFIDENCE</div>
-                            <div className="profile-detail-value" style={{ color: recognitionConfidence > 70 ? '#28a745' : '#ffc107' }}>
-                              {recognitionConfidence}%
+
+                          <div className="profile-detail-row">
+                            <div className="profile-detail-icon text-success">
+                              <i className="bi bi-building"></i>
+                            </div>
+                            <div>
+                              <div className="profile-detail-label">DEPARTMENT</div>
+                              <div className="profile-detail-value">{recognizedUser.department || '—'}</div>
+                            </div>
+                          </div>
+
+                          <div className="profile-detail-row">
+                            <div className="profile-detail-icon" style={{ color: recognitionConfidence > 70 ? '#28a745' : '#ffc107' }}>
+                              <i className="bi bi-graph-up"></i>
+                            </div>
+                            <div>
+                              <div className="profile-detail-label">MATCH CONFIDENCE</div>
+                              <div className="profile-detail-value" style={{ color: recognitionConfidence > 70 ? '#28a745' : '#ffc107' }}>
+                                {recognitionConfidence}%
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
 
-                      {selectedEventDetails && (
-                        <div className="detected-event-badge mb-3">
-                          <i className="bi bi-calendar-check me-2 text-success"></i>
-                          <strong>Event:</strong>&nbsp;{selectedEventDetails.name}
+                        {selectedEventDetails && (
+                          <div className="detected-event-badge mb-3">
+                            <i className="bi bi-calendar-check me-2 text-success"></i>
+                            <strong>Event:</strong>&nbsp;{selectedEventDetails.name}
+                          </div>
+                        )}
+
+                        <div className="mt-auto d-grid">
+                          <Button
+                            variant="outline-secondary"
+                            size="lg"
+                            onClick={() => {
+                              setRecognizedUser(null);
+                              setRecognitionConfidence(0);
+                              setCurrentDetectedName('');
+                              setCurrentConfidence(0);
+                              setIsScanning(true);
+                              if (manualMode) {
+                                setManualId('');
+                                setManualSearched(false);
+                              }
+                            }}
+                          >
+                            <i className="bi bi-arrow-repeat me-2"></i>
+                            Scan Different Face
+                          </Button>
                         </div>
-                      )}
-
-                      <div className="mt-auto d-grid">
-                        <Button
-                          variant="outline-secondary"
-                          size="lg"
-                          onClick={() => {
-                            setRecognizedUser(null);
-                            setRecognitionConfidence(0);
-                            setCurrentDetectedName('');
-                            setCurrentConfidence(0);
-                            setIsScanning(true);
-                          }}
-                        >
-                          <i className="bi bi-arrow-repeat me-2"></i>
-                          Scan Different Face
-                        </Button>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {/* Instructions */}
-                  <div className="detected-profile-instructions mt-3 pt-3" style={{ borderTop: '1px solid #e9ecef' }}>
-                    <p className="mb-1 fw-bold small">
-                      <i className="bi bi-info-circle me-1 text-primary"></i>Instructions
-                    </p>
-                    <ol className="mb-0 ps-3" style={{ fontSize: '12px', color: '#666' }}>
-                      <li>Select an event above</li>
-                      <li>Click <strong>"Scan Face"</strong> to activate camera</li>
-                      <li>Position your face in front of the camera</li>
-                      <li>Profile will appear here automatically</li>
-                    </ol>
-                  </div>
-                </Card.Body>
-              </Card>
+                    {/* Instructions */}
+                    <div className="detected-profile-instructions mt-3 pt-3" style={{ borderTop: '1px solid #e9ecef' }}>
+                      <p className="mb-1 fw-bold small">
+                        <i className="bi bi-info-circle me-1 text-primary"></i>Instructions
+                      </p>
+                      <ol className="mb-0 ps-3" style={{ fontSize: '12px', color: '#666' }}>
+                        <li>Select an event above</li>
+                        <li>Click <strong>"Scan Face"</strong> to activate camera</li>
+                        <li>Position your face in front of the camera</li>
+                        <li>Profile will appear here automatically</li>
+                      </ol>
+                    </div>
+                  </Card.Body>
+                </Card>
 
               </div>{/* end scanner-right-column */}
             </div>{/* end scanner-three-col-layout */}
           </Col>
         </Row>
       </Container>
-
-      {/* Confirmation modal removed: attendance handled inline in detected profile */}
 
       <link 
         rel="stylesheet" 
