@@ -246,7 +246,8 @@ function EmployeesArchive({ onNavigate }) {
             <thead>
               <tr>
                 <th>Employee Code</th>
-                <th>Name</th>
+                <th>Last Name</th>
+                <th>First Name</th>
                 <th>Department</th>
                 <th>Position</th>
                 <th>Actions</th>
@@ -256,7 +257,8 @@ function EmployeesArchive({ onNavigate }) {
               {filteredEmployees.map(emp => (
                 <tr key={emp.employee_ID}>
                   <td>{emp.employee_code}</td>
-                  <td>{emp.employee_firstName} {emp.employee_LastName}</td>
+                  <td>{emp.employee_LastName}</td>
+                  <td>{emp.employee_firstName}</td>
                   <td>{emp.department_name}</td>
                   <td>{emp.position}</td>
                   <td>
@@ -272,7 +274,7 @@ function EmployeesArchive({ onNavigate }) {
               ))}
               {filteredEmployees.length === 0 && (
                 <tr>
-                  <td colSpan="5" className="text-center text-muted py-4">
+                  <td colSpan="6" className="text-center text-muted py-4">
                     No records found
                   </td>
                 </tr>
